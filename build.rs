@@ -78,6 +78,10 @@ fn install_android_deps() {
 }
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=RUSTDESK_PRESET_RENDEZVOUS_SERVER");
+    println!("cargo:rerun-if-env-changed=RUSTDESK_PRESET_RELAY_SERVER");
+    println!("cargo:rerun-if-env-changed=RUSTDESK_PRESET_API_SERVER");
+    println!("cargo:rerun-if-env-changed=RUSTDESK_PRESET_KEY");
     hbb_common::gen_version();
     install_android_deps();
     #[cfg(all(windows, feature = "inline"))]

@@ -1786,10 +1786,12 @@ pub fn load_custom_client() {
     #[cfg(debug_assertions)]
     if let Ok(data) = std::fs::read_to_string("./custom.txt") {
         read_custom_client(data.trim());
+        apply_compile_time_preset_client();
         return;
     }
     let Some(path) = std::env::current_exe().map_or(None, |x| x.parent().map(|x| x.to_path_buf()))
     else {
+        apply_compile_time_preset_client();
         return;
     };
     #[cfg(target_os = "macos")]
@@ -1798,9 +1800,30 @@ pub fn load_custom_client() {
     if path.is_file() {
         let Ok(data) = std::fs::read_to_string(&path) else {
             log::error!("Failed to read custom client config");
+            apply_compile_time_preset_client();
             return;
         };
         read_custom_client(&data.trim());
+    }
+    apply_compile_time_preset_client();
+}
+
+fn apply_compile_time_preset_client() {
+    let preset_options = [
+        (
+            "custom-rendezvous-server",
+            option_env!("RUSTDESK_PRESET_RENDEZVOUS_SERVER"),
+        ),
+        ("relay-server", option_env!("RUSTDESK_PRESET_RELAY_SERVER")),
+        ("api-server", option_env!("RUSTDESK_PRESET_API_SERVER")),
+        ("key", option_env!("RUSTDESK_PRESET_KEY")),
+    ];
+
+    let mut overwrite_settings = config::OVERWRITE_SETTINGS.write().unwrap();
+    for (key, value) in preset_options {
+        if let Some(value) = value {
+            overwrite_settings.insert(key.to_owned(), value.trim().to_owned());
+        }
     }
 }
 
