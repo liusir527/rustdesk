@@ -1,0 +1,28 @@
+{
+  "hard_settings": {
+    "conn-type": "incoming",
+    "disable-settings": "Y",
+    "disable-account": "Y",
+    "disable-ab": "Y",
+    "disable-installation": "Y"
+  },
+  "override_settings": {
+    "custom-rendezvous-server": "rd.easylan.site",
+    "relay-server": "rd.easylan.site",
+    "api-server": "",
+    "key": "bJS1n4CiPh++CuqizpHqK8yYdqWRusMId7l30nBuTMM=",
+    "enable-check-update": "N",
+    "allow-auto-update": "N",
+    "enable-lan-discovery": "N"
+  },
+  "builtin_settings": {
+    "hide-network-settings": "Y",
+    "hide-server-settings": "Y",
+    "hide-proxy-settings": "Y",
+    "hide-websocket-settings": "Y",
+    "hide-security-settings": "Y",
+    "hide-remote-printer-settings": "Y",
+    "hide-help-cards": "Y",
+    "hide-powered-by-me": "Y"
+  }
+}

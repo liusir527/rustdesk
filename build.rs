@@ -78,6 +78,9 @@ fn install_android_deps() {
 }
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=RUSTDESK_PRESET_HARD_SETTINGS");
+    println!("cargo:rerun-if-env-changed=RUSTDESK_PRESET_OVERRIDE_SETTINGS");
+    println!("cargo:rerun-if-env-changed=RUSTDESK_PRESET_BUILTIN_SETTINGS");
     println!("cargo:rerun-if-env-changed=RUSTDESK_PRESET_RENDEZVOUS_SERVER");
     println!("cargo:rerun-if-env-changed=RUSTDESK_PRESET_RELAY_SERVER");
     println!("cargo:rerun-if-env-changed=RUSTDESK_PRESET_API_SERVER");

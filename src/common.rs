@@ -1809,7 +1809,43 @@ pub fn load_custom_client() {
 }
 
 fn apply_compile_time_preset_client() {
-    let preset_options = [
+    fn parse_preset_settings(
+        name: &str,
+        raw: Option<&str>,
+    ) -> Option<std::collections::HashMap<String, String>> {
+        let raw = raw?.trim();
+        if raw.is_empty() {
+            return None;
+        }
+        match serde_json::from_str::<std::collections::HashMap<String, String>>(raw) {
+            Ok(settings) => Some(settings),
+            Err(err) => {
+                log::error!("Failed to parse {name}: {err}");
+                None
+            }
+        }
+    }
+
+    if let Some(settings) = parse_preset_settings(
+        "RUSTDESK_PRESET_HARD_SETTINGS",
+        option_env!("RUSTDESK_PRESET_HARD_SETTINGS"),
+    ) {
+        config::HARD_SETTINGS.write().unwrap().extend(settings);
+    }
+    if let Some(settings) = parse_preset_settings(
+        "RUSTDESK_PRESET_OVERRIDE_SETTINGS",
+        option_env!("RUSTDESK_PRESET_OVERRIDE_SETTINGS"),
+    ) {
+        config::OVERWRITE_SETTINGS.write().unwrap().extend(settings);
+    }
+    if let Some(settings) = parse_preset_settings(
+        "RUSTDESK_PRESET_BUILTIN_SETTINGS",
+        option_env!("RUSTDESK_PRESET_BUILTIN_SETTINGS"),
+    ) {
+        config::BUILTIN_SETTINGS.write().unwrap().extend(settings);
+    }
+
+    let legacy_override_settings = [
         (
             "custom-rendezvous-server",
             option_env!("RUSTDESK_PRESET_RENDEZVOUS_SERVER"),
@@ -1818,9 +1854,8 @@ fn apply_compile_time_preset_client() {
         ("api-server", option_env!("RUSTDESK_PRESET_API_SERVER")),
         ("key", option_env!("RUSTDESK_PRESET_KEY")),
     ];
-
     let mut overwrite_settings = config::OVERWRITE_SETTINGS.write().unwrap();
-    for (key, value) in preset_options {
+    for (key, value) in legacy_override_settings {
         if let Some(value) = value {
             overwrite_settings.insert(key.to_owned(), value.trim().to_owned());
         }
