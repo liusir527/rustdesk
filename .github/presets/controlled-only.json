@@ -7,10 +7,10 @@
     "disable-installation": "Y"
   },
   "override_settings": {
-    "custom-rendezvous-server": "替换为你的ID服务器",
-    "relay-server": "替换为你的Relay服务器",
+    "custom-rendezvous-server": "",
+    "relay-server": "",
     "api-server": "",
-    "key": "替换为你的服务器公钥",
+    "key": "",
     "approve-mode": "password",
     "verification-method": "use-permanent-password",
     "enable-check-update": "N",
