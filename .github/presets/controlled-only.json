@@ -1,0 +1,32 @@
+{
+  "hard_settings": {
+    "conn-type": "incoming",
+    "disable-settings": "Y",
+    "disable-account": "Y",
+    "disable-ab": "Y",
+    "disable-installation": "Y"
+  },
+  "override_settings": {
+    "custom-rendezvous-server": "替换为你的ID服务器",
+    "relay-server": "替换为你的Relay服务器",
+    "api-server": "",
+    "key": "替换为你的服务器公钥",
+    "approve-mode": "password",
+    "verification-method": "use-permanent-password",
+    "enable-check-update": "N",
+    "allow-auto-update": "N",
+    "enable-lan-discovery": "N"
+  },
+  "builtin_settings": {
+    "hide-network-settings": "Y",
+    "hide-server-settings": "Y",
+    "hide-proxy-settings": "Y",
+    "hide-websocket-settings": "Y",
+    "hide-security-settings": "Y",
+    "disable-change-permanent-password": "Y",
+    "hide-remote-printer-settings": "Y",
+    "hide-help-cards": "Y",
+    "hide-powered-by-me": "Y",
+    "hide-tray": "Y"
+  }
+}

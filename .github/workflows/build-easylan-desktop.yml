@@ -1,4 +1,4 @@
-name: Build EasyLAN Multiplatform
+name: Build RustDesk Multi-Preset
 
 on:
   workflow_dispatch:
@@ -31,9 +31,19 @@ jobs:
       target_version: Windows10
 
   build-windows-x64:
-    name: x86_64-pc-windows-msvc
+    name: ${{ matrix.preset.name }} - Windows x64
     needs: [generate-bridge, build-RustDeskTempTopMostWindow]
     runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        preset:
+          - name: controlled-only
+            file: .github/presets/controlled-only.json
+          - name: viewer-only
+            file: .github/presets/viewer-only.json
+          - name: full-client
+            file: .github/presets/full-client.json
     steps:
       - name: Export GitHub Actions cache environment variables
         uses: actions/github-script@v6
@@ -50,7 +60,7 @@ jobs:
       - name: Load RustDesk preset config
         shell: pwsh
         run: |
-          $preset = Get-Content "${{ env.RUSTDESK_PRESET_FILE }}" -Raw | ConvertFrom-Json
+          $preset = Get-Content "${{ matrix.preset.file }}" -Raw | ConvertFrom-Json
           $settings = @{
             RUSTDESK_PRESET_HARD_SETTINGS = $preset.hard_settings
             RUSTDESK_PRESET_OVERRIDE_SETTINGS = $preset.override_settings
@@ -172,7 +182,7 @@ jobs:
       - name: Upload unpacked artifact
         uses: actions/upload-artifact@master
         with:
-          name: rustdesk-easylan-unsigned-windows-x64
+          name: rustdesk-${{ matrix.preset.name }}-unsigned-windows-x64
           path: rustdesk
 
       - name: Build self-extracted executable
@@ -184,7 +194,7 @@ jobs:
           python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
           popd
           mkdir -p ./SignOutput
-          mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-easylan-${{ env.VERSION }}-x64.exe
+          mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ matrix.preset.name }}-${{ env.VERSION }}-x64.exe
 
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
@@ -195,22 +205,29 @@ jobs:
           python preprocess.py --arp -d ../../rustdesk
           nuget restore msi.sln
           msbuild msi.sln -p:Configuration=Release -p:Platform=x64 /p:TargetVersion=Windows10
-          mv ./Package/bin/x64/Release/en-us/Package.msi ../../SignOutput/rustdesk-easylan-${{ env.VERSION }}-x64.msi
-          sha256sum ../../SignOutput/rustdesk-easylan-*.msi
+          mv ./Package/bin/x64/Release/en-us/Package.msi ../../SignOutput/rustdesk-${{ matrix.preset.name }}-${{ env.VERSION }}-x64.msi
+          sha256sum ../../SignOutput/rustdesk-${{ matrix.preset.name }}-*.msi
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@master
         with:
-          name: rustdesk-easylan-installers-windows-x64
+          name: rustdesk-${{ matrix.preset.name }}-installers-windows-x64
           path: SignOutput
 
   build-macos:
-    name: macOS ${{ matrix.job.arch }}
+    name: ${{ matrix.preset.name }} - macOS ${{ matrix.job.arch }}
     needs: [generate-bridge]
     runs-on: ${{ matrix.job.os }}
     strategy:
       fail-fast: false
       matrix:
+        preset:
+          - name: controlled-only
+            file: .github/presets/controlled-only.json
+          - name: viewer-only
+            file: .github/presets/viewer-only.json
+          - name: full-client
+            file: .github/presets/full-client.json
         job:
           - {
               target: x86_64-apple-darwin,
@@ -240,7 +257,7 @@ jobs:
       - name: Load RustDesk preset config
         shell: pwsh
         run: |
-          $preset = Get-Content "${{ env.RUSTDESK_PRESET_FILE }}" -Raw | ConvertFrom-Json
+          $preset = Get-Content "${{ matrix.preset.file }}" -Raw | ConvertFrom-Json
           $settings = @{
             RUSTDESK_PRESET_HARD_SETTINGS = $preset.hard_settings
             RUSTDESK_PRESET_OVERRIDE_SETTINGS = $preset.override_settings
@@ -308,6 +325,7 @@ jobs:
       - name: Setup vcpkg with Github Actions binary cache
         uses: lukka/run-vcpkg@v11
         with:
+          vcpkgDirectory: /opt/artifacts/vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
@@ -337,18 +355,28 @@ jobs:
           CREATE_DMG="$(command -v create-dmg)"
           CREATE_DMG="$(readlink -f "$CREATE_DMG")"
           sed -i -e 's/MAXIMUM_UNMOUNTING_ATTEMPTS=3/MAXIMUM_UNMOUNTING_ATTEMPTS=7/' "$CREATE_DMG"
-          create-dmg --icon "RustDesk.app" 200 190 --hide-extension "RustDesk.app" --window-size 800 400 --app-drop-link 600 185 rustdesk-easylan-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg ./flutter/build/macos/Build/Products/Release/RustDesk.app
+          create-dmg --icon "RustDesk.app" 200 190 --hide-extension "RustDesk.app" --window-size 800 400 --app-drop-link 600 185 rustdesk-${{ matrix.preset.name }}-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg ./flutter/build/macos/Build/Products/Release/RustDesk.app
 
       - name: Upload macOS dmg
         uses: actions/upload-artifact@master
         with:
-          name: rustdesk-easylan-macos-${{ matrix.job.arch }}
-          path: rustdesk-easylan-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg
+          name: rustdesk-${{ matrix.preset.name }}-macos-${{ matrix.job.arch }}
+          path: rustdesk-${{ matrix.preset.name }}-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg
 
   build-linux:
-    name: Linux x86_64 deb/rpm
+    name: ${{ matrix.preset.name }} - Linux x86_64 deb/rpm
     needs: [generate-bridge]
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        preset:
+          - name: controlled-only
+            file: .github/presets/controlled-only.json
+          - name: viewer-only
+            file: .github/presets/viewer-only.json
+          - name: full-client
+            file: .github/presets/full-client.json
     steps:
       - name: Export GitHub Actions cache environment variables
         uses: actions/github-script@v6
@@ -374,7 +402,7 @@ jobs:
       - name: Load RustDesk preset config
         shell: pwsh
         run: |
-          $preset = Get-Content "${{ env.RUSTDESK_PRESET_FILE }}" -Raw | ConvertFrom-Json
+          $preset = Get-Content "${{ matrix.preset.file }}" -Raw | ConvertFrom-Json
           $settings = @{
             RUSTDESK_PRESET_HARD_SETTINGS = $preset.hard_settings
             RUSTDESK_PRESET_OVERRIDE_SETTINGS = $preset.override_settings
@@ -517,37 +545,44 @@ jobs:
             export DEB_ARCH=amd64
             python3 ./build.py --flutter --skip-cargo
             for name in rustdesk*??.deb; do
-              mv "$name" "${name%%.deb}-x86_64.deb"
+              mv "$name" "${name%%.deb}-${{ matrix.preset.name }}-x86_64.deb"
             done
 
             HBB=$(pwd) rpmbuild ./res/rpm-flutter.spec -bb
             pushd ~/rpmbuild/RPMS/x86_64
             for name in rustdesk*??.rpm; do
-              mv "$name" /workspace/"${name%%.rpm}.rpm"
+              mv "$name" /workspace/"${name%%.rpm}-${{ matrix.preset.name }}.rpm"
             done
 
             pushd /workspace
             HBB=$(pwd) rpmbuild ./res/rpm-flutter-suse.spec -bb
             pushd ~/rpmbuild/RPMS/x86_64
             for name in rustdesk*??.rpm; do
-              mv "$name" /workspace/"${name%%.rpm}-suse.rpm"
+              mv "$name" /workspace/"${name%%.rpm}-${{ matrix.preset.name }}-suse.rpm"
             done
 
       - name: Upload Linux packages
         uses: actions/upload-artifact@master
         with:
-          name: rustdesk-easylan-linux-x86_64
+          name: rustdesk-${{ matrix.preset.name }}-linux-x86_64
           path: |
-            rustdesk-*.deb
-            rustdesk-*.rpm
+            rustdesk-*${{ matrix.preset.name }}*.deb
+            rustdesk-*${{ matrix.preset.name }}*.rpm
 
   build-android-unsigned:
-    name: Android unsigned APK ${{ matrix.job.arch }}
+    name: ${{ matrix.preset.name }} - Android unsigned APK ${{ matrix.job.arch }}
     needs: [generate-bridge]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
+        preset:
+          - name: controlled-only
+            file: .github/presets/controlled-only.json
+          - name: viewer-only
+            file: .github/presets/viewer-only.json
+          - name: full-client
+            file: .github/presets/full-client.json
         job:
           - {
               arch: aarch64,
@@ -588,7 +623,7 @@ jobs:
           dotnet: true
           haskell: true
           large-packages: false
-          docker-images: true
+          docker-images: false
           swap-storage: false
 
       - name: Export GitHub Actions cache environment variables
@@ -642,7 +677,7 @@ jobs:
       - name: Load RustDesk preset config
         shell: pwsh
         run: |
-          $preset = Get-Content "${{ env.RUSTDESK_PRESET_FILE }}" -Raw | ConvertFrom-Json
+          $preset = Get-Content "${{ matrix.preset.file }}" -Raw | ConvertFrom-Json
           $settings = @{
             RUSTDESK_PRESET_HARD_SETTINGS = $preset.hard_settings
             RUSTDESK_PRESET_OVERRIDE_SETTINGS = $preset.override_settings
@@ -734,10 +769,10 @@ jobs:
           flutter build apk --release --target-platform "${{ matrix.job.flutter-target }}" --split-per-abi
           popd
           mkdir -p android-apk
-          mv "./flutter/build/app/outputs/flutter-apk/${{ matrix.job.apk-name }}" "./android-apk/rustdesk-easylan-${{ env.VERSION }}-${{ matrix.job.arch }}-unsigned.apk"
+          mv "./flutter/build/app/outputs/flutter-apk/${{ matrix.job.apk-name }}" "./android-apk/rustdesk-${{ matrix.preset.name }}-${{ env.VERSION }}-${{ matrix.job.arch }}-unsigned.apk"
 
       - name: Upload Android APK
         uses: actions/upload-artifact@master
         with:
-          name: rustdesk-easylan-android-${{ matrix.job.arch }}-unsigned
+          name: rustdesk-${{ matrix.preset.name }}-android-${{ matrix.job.arch }}-unsigned
           path: android-apk/*.apk

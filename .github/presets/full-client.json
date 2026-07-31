@@ -1,0 +1,15 @@
+{
+  "override_settings": {
+    "custom-rendezvous-server": "替换为你的ID服务器",
+    "relay-server": "替换为你的Relay服务器",
+    "api-server": "",
+    "key": "替换为你的服务器公钥",
+    "enable-check-update": "N",
+    "allow-auto-update": "N",
+    "enable-lan-discovery": "N"
+  },
+  "builtin_settings": {
+    "hide-help-cards": "Y",
+    "hide-powered-by-me": "Y"
+  }
+}
