@@ -1,9 +1,10 @@
+use base::config::keys::{self, *};
 #[cfg(any(target_os = "android", target_os = "ios"))]
 use hbb_common::password_security;
 use hbb_common::{
     allow_err,
     bytes::Bytes,
-    config::{self, keys::*, Config, LocalConfig, PeerConfig, CONNECT_TIMEOUT, RENDEZVOUS_PORT},
+    config::{self, Config, LocalConfig, PeerConfig, CONNECT_TIMEOUT, RENDEZVOUS_PORT},
     directories_next,
     futures::future::join_all,
     log,
@@ -106,9 +107,18 @@ pub fn goto_install() {
 pub fn install_me(_options: String, _path: String, _silent: bool, _debug: bool) {
     #[cfg(windows)]
     std::thread::spawn(move || {
-        allow_err!(crate::platform::windows::install_me(
-            &_options, _path, _silent, _debug
-        ));
+        if let Err(err) = crate::platform::windows::install_me(&_options, _path, _silent, _debug) {
+            log::error!("Installation failed: {err:#}");
+            if !_silent
+                && !err
+                    .downcast_ref::<::windows::core::Error>()
+                    .is_some_and(|err| {
+                        err.code() == ::windows::Win32::Foundation::ERROR_CANCELLED.to_hresult()
+                    })
+            {
+                crate::platform::windows::message_box(&format!("Installation failed:\n{err:#}!"));
+            }
+        }
         std::process::exit(0);
     });
 }
@@ -185,11 +195,11 @@ pub fn use_texture_render() -> bool {
 
     #[cfg(target_os = "macos")]
     return cfg!(feature = "flutter")
-        && LocalConfig::get_option(config::keys::OPTION_TEXTURE_RENDER) == "Y";
+        && LocalConfig::get_option(keys::OPTION_TEXTURE_RENDER) == "Y";
 
     #[cfg(target_os = "linux")]
     return cfg!(feature = "flutter")
-        && LocalConfig::get_option(config::keys::OPTION_TEXTURE_RENDER) != "N";
+        && LocalConfig::get_option(keys::OPTION_TEXTURE_RENDER) != "N";
 
     #[cfg(target_os = "windows")]
     {
@@ -202,9 +212,9 @@ pub fn use_texture_render() -> bool {
         #[cfg(not(debug_assertions))]
         let default_texture = crate::platform::is_win_10_or_greater();
         if default_texture {
-            LocalConfig::get_option(config::keys::OPTION_TEXTURE_RENDER) != "N"
+            LocalConfig::get_option(keys::OPTION_TEXTURE_RENDER) != "N"
         } else {
-            return LocalConfig::get_option(config::keys::OPTION_TEXTURE_RENDER) == "Y";
+            return LocalConfig::get_option(keys::OPTION_TEXTURE_RENDER) == "Y";
         }
     }
 }
@@ -245,7 +255,20 @@ pub fn get_builtin_option(key: &str) -> String {
 
 #[inline]
 pub fn set_local_option(key: String, value: String) {
-    LocalConfig::set_option(key.clone(), value.clone());
+    LocalConfig::set_option(key.clone(), value);
+}
+
+/// Resolve relative avatar path (e.g. "/avatar/xxx") to absolute URL
+/// by prepending the API server address.
+pub fn resolve_avatar_url(avatar: String) -> String {
+    let avatar = avatar.trim().to_owned();
+    if avatar.starts_with('/') {
+        let api_server = get_api_server();
+        if !api_server.is_empty() {
+            return format!("{}{}", api_server.trim_end_matches('/'), avatar);
+        }
+    }
+    avatar
 }
 
 #[cfg(any(target_os = "android", target_os = "ios", feature = "flutter"))]
@@ -399,18 +422,53 @@ pub fn set_options(mut m: HashMap<String, String>) {
     for (key, value) in config::OVERWRITE_SETTINGS.read().unwrap().iter() {
         m.insert(key.to_owned(), value.to_owned());
     }
+    hbb_common::allow_err!(try_set_options(m));
+}
+
+pub fn try_set_options(m: HashMap<String, String>) -> hbb_common::ResultType<()> {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
-        *OPTIONS.lock().unwrap() = m.clone();
-        ipc::set_options(m).ok();
+        if !crate::trusted_devices::config::changes_authentication(&m) {
+            *OPTIONS.lock().unwrap() = m.clone();
+            hbb_common::allow_err!(ipc::set_options(m));
+            return Ok(());
+        }
+        ipc::set_options(m.clone())?;
+        *OPTIONS.lock().unwrap() = m;
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
-    Config::set_options(m);
+    crate::trusted_devices::config::set_options(m)?;
+    Ok(())
+}
+
+pub fn set_auth_option(key: String, value: String) -> hbb_common::ResultType<()> {
+    if key == keys::OPTION_TRUSTED_DEVICE_EXPIRATION
+        && !matches!(value.as_str(), "" | "1" | "7" | "30" | "90" | "0")
+    {
+        hbb_common::bail!("Invalid trusted-device expiration period");
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let mut options = ipc::get_options();
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let mut options = Config::get_options();
+    if value.is_empty() {
+        options.remove(&key);
+    } else {
+        options.insert(key, value);
+    }
+    try_set_options(options)
 }
 
 #[inline]
 pub fn set_option(key: String, value: String) {
     if is_option_fixed(&key) {
+        return;
+    }
+    if key == "2fa"
+        || key == keys::OPTION_ENABLE_TRUSTED_DEVICES
+        || key == keys::OPTION_TRUSTED_DEVICE_EXPIRATION
+    {
+        hbb_common::allow_err!(set_auth_option(key, value));
         return;
     }
     if &key == "stop-service" {
@@ -602,19 +660,62 @@ pub fn update_temporary_password() {
 }
 
 #[inline]
-pub fn permanent_password() -> String {
+pub fn is_permanent_password_set() -> bool {
     #[cfg(any(target_os = "android", target_os = "ios"))]
-    return Config::get_permanent_password();
+    return Config::has_permanent_password();
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    return ipc::get_permanent_password();
+    {
+        let daemon_is_set = ipc::is_permanent_password_set();
+        // `daemon_is_set` is authoritative for the return value. Local storage is only used to
+        // decide whether we should attempt a sync to clear stale user-side state.
+        let local_storage_is_empty = if daemon_is_set {
+            true
+        } else {
+            let (storage, _) = Config::get_local_permanent_password_storage_and_salt();
+            storage.is_empty()
+        };
+        if daemon_is_set || !local_storage_is_empty {
+            allow_err!(ipc::sync_permanent_password_storage_from_daemon());
+        }
+        daemon_is_set
+    }
 }
 
 #[inline]
-pub fn set_permanent_password(password: String) {
+pub fn is_local_permanent_password_set() -> bool {
     #[cfg(any(target_os = "android", target_os = "ios"))]
-    Config::set_permanent_password(&password);
+    return Config::has_local_permanent_password();
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    allow_err!(ipc::set_permanent_password(password));
+    {
+        allow_err!(ipc::sync_permanent_password_storage_from_daemon());
+        Config::has_local_permanent_password()
+    }
+}
+
+pub fn set_permanent_password_with_result(password: String) -> bool {
+    if config::Config::is_disable_change_permanent_password() {
+        return false;
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        return match crate::trusted_devices::config::set_password(&password) {
+            Ok(updated) => updated,
+            Err(error) => {
+                log::error!("Password change rejected: {error}");
+                false
+            }
+        };
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        match crate::ipc::set_permanent_password_with_ack(password) {
+            Ok(ok) => ok,
+            Err(err) => {
+                log::warn!("Failed to set permanent password via IPC: {err}");
+                false
+            }
+        }
+    }
 }
 
 #[inline]
@@ -667,7 +768,6 @@ pub fn is_can_input_monitoring(_prompt: bool) -> bool {
 
 #[inline]
 pub fn get_error() -> String {
-    #[cfg(not(any(feature = "cli")))]
     #[cfg(target_os = "linux")]
     {
         let dtype = crate::platform::linux::get_display_server();
@@ -704,13 +804,14 @@ pub fn current_is_wayland() -> bool {
 
 #[inline]
 pub fn get_new_version() -> String {
-    (*SOFTWARE_UPDATE_URL
+    SOFTWARE_UPDATE_URL
         .lock()
         .unwrap()
+        .trim_end_matches('/')
         .rsplit('/')
         .next()
-        .unwrap_or(""))
-    .to_string()
+        .unwrap_or("")
+        .to_owned()
 }
 
 #[inline]
@@ -858,12 +959,37 @@ pub fn get_async_job_status() -> String {
 #[inline]
 pub fn get_langs() -> String {
     use serde_json::json;
+    let hide_cjk = crate::lang::cjk_ui_unavailable();
     let mut x: Vec<(&str, String)> = crate::lang::LANGS
         .iter()
+        .filter(|a| !hide_cjk || !crate::lang::is_cjk_lang(a.0))
         .map(|a| (a.0, format!("{} ({})", a.1, a.0)))
         .collect();
     x.sort_by(|a, b| a.0.cmp(b.0));
     json!(x).to_string()
+}
+
+// Preserve relative paths for existing configurations and only remove accidental
+// surrounding whitespace. Config values are not shell-expanded (for example, `~`).
+fn trim_video_save_directory(value: &str) -> Option<&str> {
+    let value = value.trim();
+    if !value.is_empty() {
+        Some(value)
+    } else {
+        None
+    }
+}
+
+// A Windows service typically runs with System32 as its working directory, so
+// require an absolute path to avoid resolving recordings there unexpectedly.
+#[cfg(any(windows, test))]
+fn validate_windows_service_video_save_directory(value: &str) -> Option<&str> {
+    let value = trim_video_save_directory(value)?;
+    if std::path::Path::new(value).is_absolute() {
+        Some(value)
+    } else {
+        None
+    }
 }
 
 #[inline]
@@ -885,6 +1011,15 @@ pub fn video_save_directory(root: bool) -> String {
         // Currently, only installed windows run as root
         #[cfg(windows)]
         {
+            let dir = Config::get_option(OPTION_WINDOWS_SERVICE_VIDEO_SAVE_DIRECTORY);
+            if let Some(dir) = validate_windows_service_video_save_directory(&dir) {
+                return dir.to_owned();
+            }
+            if !dir.trim().is_empty() {
+                log::warn!(
+                    "Ignoring {OPTION_WINDOWS_SERVICE_VIDEO_SAVE_DIRECTORY}: path must be absolute"
+                );
+            }
             let drive = std::env::var("SystemDrive").unwrap_or("C:".to_owned());
             let dir =
                 std::path::PathBuf::from(format!("{drive}\\ProgramData\\{appname}\\recording",));
@@ -896,8 +1031,8 @@ pub fn video_save_directory(root: bool) -> String {
     let dir = LocalConfig::get_option_from_file(OPTION_VIDEO_SAVE_DIRECTORY);
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let dir = LocalConfig::get_option(OPTION_VIDEO_SAVE_DIRECTORY);
-    if !dir.is_empty() {
-        return dir;
+    if let Some(dir) = trim_video_save_directory(&dir) {
+        return dir.to_owned();
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
     if let Ok(home) = config::APP_HOME_DIR.read() {
@@ -974,6 +1109,102 @@ pub fn get_api_server() -> String {
         get_option("api-server"),
         get_option("custom-rendezvous-server"),
     )
+}
+
+pub enum DeployResult {
+    Ok,
+    NotEnabled,
+    InvalidInput,
+    IdTaken(String),
+    Error(String),
+}
+
+impl DeployResult {
+    pub fn message(&self) -> String {
+        match self {
+            Self::Ok => "".to_owned(),
+            Self::NotEnabled => "The server does not require explicit deployment.".to_owned(),
+            Self::InvalidInput => "Invalid input.".to_owned(),
+            Self::IdTaken(id) => {
+                format!(
+                    "Id `{}` is already used by another machine on the server.",
+                    id
+                )
+            }
+            Self::Error(err) => err.clone(),
+        }
+    }
+}
+
+pub fn deploy_device(token: String, new_id: Option<String>) -> DeployResult {
+    if Config::no_register_device() {
+        return DeployResult::Error("Cannot deploy an unregistrable device!".to_owned());
+    }
+    let token = token.trim();
+    if token.is_empty() {
+        return DeployResult::Error("token is required!".to_owned());
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let local_id = Config::get_id();
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let local_id = ipc::get_id();
+    let id_to_deploy = new_id.clone().unwrap_or_else(|| local_id.clone());
+    let uuid = crate::encode64(hbb_common::get_uuid());
+    let pk = crate::encode64(Config::get_key_pair().1);
+    let body = serde_json::json!({
+        "id": id_to_deploy,
+        "uuid": uuid,
+        "pk": pk,
+    });
+    let header = "Authorization: Bearer ".to_owned() + token;
+    let url = get_api_server() + "/api/devices/deploy";
+    let text = match crate::post_request_sync(url, body.to_string(), &header) {
+        Ok(text) => text,
+        Err(err) => return DeployResult::Error(format!("Request failed: {}", err)),
+    };
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    match parsed["result"].as_str().unwrap_or("") {
+        "OK" => {
+            if let Some(new_id) = new_id {
+                if new_id != local_id {
+                    #[cfg(any(target_os = "android", target_os = "ios"))]
+                    {
+                        Config::set_key_confirmed(false);
+                        Config::set_id(&new_id);
+                    }
+                    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                    if let Err(err) = ipc::set_config("id", new_id) {
+                        return DeployResult::Error(format!(
+                            "Failed to persist deployed id locally: {}",
+                            err
+                        ));
+                    }
+                }
+            }
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            if let Err(err) = ipc::notify_deployed() {
+                log::warn!("Failed to notify deployed state: {}", err);
+            }
+            #[cfg(target_os = "android")]
+            {
+                crate::rendezvous_mediator::NEEDS_DEPLOY
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                crate::rendezvous_mediator::reset_needs_deploy_notification();
+                crate::rendezvous_mediator::RendezvousMediator::restart();
+            }
+            DeployResult::Ok
+        }
+        "NOT_ENABLED" => DeployResult::NotEnabled,
+        "INVALID_INPUT" => DeployResult::InvalidInput,
+        "ID_TAKEN" => DeployResult::IdTaken(id_to_deploy),
+        _ => {
+            if text.is_empty() {
+                DeployResult::Error("Unknown response.".to_owned())
+            } else {
+                DeployResult::Error(text)
+            }
+        }
+    }
 }
 
 #[inline]
@@ -1530,31 +1761,6 @@ pub fn set_unlock_pin(pin: String) -> String {
 }
 
 #[cfg(feature = "flutter")]
-pub fn get_trusted_devices() -> String {
-    #[cfg(any(target_os = "android", target_os = "ios"))]
-    return Config::get_trusted_devices_json();
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    return ipc::get_trusted_devices();
-}
-
-#[cfg(feature = "flutter")]
-pub fn remove_trusted_devices(json: &str) {
-    let hwids = serde_json::from_str::<Vec<Bytes>>(json).unwrap_or_default();
-    #[cfg(any(target_os = "android", target_os = "ios"))]
-    Config::remove_trusted_devices(&hwids);
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    ipc::remove_trusted_devices(hwids);
-}
-
-#[cfg(feature = "flutter")]
-pub fn clear_trusted_devices() {
-    #[cfg(any(target_os = "android", target_os = "ios"))]
-    Config::clear_trusted_devices();
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    ipc::clear_trusted_devices();
-}
-
-#[cfg(feature = "flutter")]
 pub fn max_encrypt_len() -> usize {
     hbb_common::config::ENCRYPT_MAX_LEN
 }
@@ -1563,4 +1769,33 @@ pub fn is_remote_modify_enabled_by_control_permissions() -> Option<bool> {
     *IS_REMOTE_MODIFY_ENABLED_BY_CONTROL_PERMISSIONS
         .lock()
         .unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_windows_service_video_save_directory;
+
+    #[test]
+    fn validate_service_video_save_directory() {
+        let absolute = if cfg!(windows) {
+            r"C:\recordings"
+        } else {
+            "/recordings"
+        };
+        let padded = format!("  {absolute}  ");
+
+        assert_eq!(
+            validate_windows_service_video_save_directory(&padded),
+            Some(absolute)
+        );
+        assert_eq!(
+            validate_windows_service_video_save_directory("recordings"),
+            None
+        );
+        assert_eq!(
+            validate_windows_service_video_save_directory(&format!("\"{absolute}\"")),
+            None
+        );
+        assert_eq!(validate_windows_service_video_save_directory("  "), None);
+    }
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_hbb/common/widgets/api_server_warning.dart';
 import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
 import 'package:flutter_hbb/common/widgets/toolbar.dart';
 import 'package:get/get.dart';
@@ -10,100 +11,6 @@ import '../../models/platform_model.dart';
 
 void _showSuccess() {
   showToast(translate("Successful"));
-}
-
-void _showError() {
-  showToast(translate("Error"));
-}
-
-void setPermanentPasswordDialog(OverlayDialogManager dialogManager) async {
-  final pw = await bind.mainGetPermanentPassword();
-  final p0 = TextEditingController(text: pw);
-  final p1 = TextEditingController(text: pw);
-  var validateLength = false;
-  var validateSame = false;
-  dialogManager.show((setState, close, context) {
-    submit() async {
-      close();
-      dialogManager.showLoading(translate("Waiting"));
-      if (await gFFI.serverModel.setPermanentPassword(p0.text)) {
-        dialogManager.dismissAll();
-        _showSuccess();
-      } else {
-        dialogManager.dismissAll();
-        _showError();
-      }
-    }
-
-    return CustomAlertDialog(
-      title: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.password_rounded, color: MyTheme.accent),
-          Text(translate('Set your own password')).paddingOnly(left: 10),
-        ],
-      ),
-      content: Form(
-          autovalidateMode: AutovalidateMode.onUserInteraction,
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextFormField(
-              autofocus: true,
-              obscureText: true,
-              keyboardType: TextInputType.visiblePassword,
-              decoration: InputDecoration(
-                labelText: translate('Password'),
-              ),
-              controller: p0,
-              validator: (v) {
-                if (v == null) return null;
-                final val = v.trim().length > 5;
-                if (validateLength != val) {
-                  // use delay to make setState success
-                  Future.delayed(Duration(microseconds: 1),
-                      () => setState(() => validateLength = val));
-                }
-                return val
-                    ? null
-                    : translate('Too short, at least 6 characters.');
-              },
-            ).workaroundFreezeLinuxMint(),
-            TextFormField(
-              obscureText: true,
-              keyboardType: TextInputType.visiblePassword,
-              decoration: InputDecoration(
-                labelText: translate('Confirmation'),
-              ),
-              controller: p1,
-              validator: (v) {
-                if (v == null) return null;
-                final val = p0.text == v;
-                if (validateSame != val) {
-                  Future.delayed(Duration(microseconds: 1),
-                      () => setState(() => validateSame = val));
-                }
-                return val
-                    ? null
-                    : translate('The confirmation is not identical.');
-              },
-            ).workaroundFreezeLinuxMint(),
-          ])),
-      onCancel: close,
-      onSubmit: (validateLength && validateSame) ? submit : null,
-      actions: [
-        dialogButton(
-          'Cancel',
-          icon: Icon(Icons.close_rounded),
-          onPressed: close,
-          isOutline: true,
-        ),
-        dialogButton(
-          'OK',
-          icon: Icon(Icons.done_rounded),
-          onPressed: (validateLength && validateSame) ? submit : null,
-        ),
-      ],
-    );
-  });
 }
 
 void setTemporaryPasswordLengthDialog(
@@ -163,6 +70,8 @@ void showServerSettingsWithValue(
     ServerConfig serverConfig,
     OverlayDialogManager dialogManager,
     void Function(VoidCallback)? upSetState) async {
+  const labelWidth = 120.0;
+  const labelSpacing = 8.0;
   var isInProgress = false;
   final idCtrl = TextEditingController(text: serverConfig.idServer);
   final relayCtrl = TextEditingController(text: serverConfig.relayServer);
@@ -206,18 +115,18 @@ void showServerSettingsWithValue(
         return Row(
           children: [
             SizedBox(
-              width: 120,
+              width: labelWidth,
               child: Text(label),
             ),
-            SizedBox(width: 8),
+            SizedBox(width: labelSpacing),
             Expanded(
-              child: TextFormField(
+              child: serverSettingsTextFormField(
+                label: label,
                 controller: controller,
-                decoration: InputDecoration(
-                  errorText: errorMsg.isEmpty ? null : errorMsg,
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-                ),
+                errorMsg: errorMsg,
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                showLabelText: false,
                 validator: validator,
                 autofocus: autofocus,
               ).workaroundFreezeLinuxMint(),
@@ -226,12 +135,10 @@ void showServerSettingsWithValue(
         );
       }
 
-      return TextFormField(
+      return serverSettingsTextFormField(
+        label: label,
         controller: controller,
-        decoration: InputDecoration(
-          labelText: label,
-          errorText: errorMsg.isEmpty ? null : errorMsg,
-        ),
+        errorMsg: errorMsg,
         validator: validator,
       ).workaroundFreezeLinuxMint();
     }
@@ -271,6 +178,17 @@ void showServerSettingsWithValue(
                       return null;
                     },
                   ),
+                  Padding(
+                    padding: EdgeInsetsDirectional.only(
+                      start: isDesktop || isWeb ? labelWidth + labelSpacing : 0,
+                    ),
+                    child: ApiServerWarning(
+                      controller: apiCtrl,
+                      idController: idCtrl,
+                      message: translate('api_server_connection_tip'),
+                      emptyMessage: translate('api_server_empty_tip'),
+                    ),
+                  ),
                   SizedBox(height: 8),
                   buildField('Key', keyCtrl, ''),
                   if (isInProgress)
@@ -301,6 +219,35 @@ void showServerSettingsWithValue(
       ],
     );
   });
+}
+
+TextFormField serverSettingsTextFormField({
+  required String label,
+  required TextEditingController controller,
+  required String errorMsg,
+  String? Function(String?)? validator,
+  bool autofocus = false,
+  bool showLabelText = true,
+  EdgeInsetsGeometry? contentPadding,
+}) {
+  return TextFormField(
+    controller: controller,
+    decoration: InputDecoration(
+      labelText: showLabelText ? label : null,
+      errorText: errorMsg.isEmpty ? null : errorMsg,
+      contentPadding: contentPadding,
+    ),
+    validator: validator,
+    autofocus: autofocus,
+    keyboardType: TextInputType.visiblePassword,
+    textCapitalization: TextCapitalization.none,
+    autocorrect: false,
+    enableSuggestions: false,
+    smartDashesType: SmartDashesType.disabled,
+    smartQuotesType: SmartQuotesType.disabled,
+    enableIMEPersonalizedLearning: false,
+    spellCheckConfiguration: const SpellCheckConfiguration.disabled(),
+  );
 }
 
 void setPrivacyModeDialog(
