@@ -285,7 +285,14 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
             child: Column(
               children: [
                 _header(context),
-                Flexible(child: _listView(tabs: _settingTabs())),
+                // Keep the first entry clear of the window's top edge now
+                // that the old page title no longer reserves this space.
+                Flexible(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 16),
+                    child: _listView(tabs: _settingTabs()),
+                  ),
+                ),
               ],
             ),
           ),
@@ -293,6 +300,7 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
           Expanded(
             child: Container(
               color: Theme.of(context).scaffoldBackgroundColor,
+              padding: const EdgeInsets.only(top: 12),
               child: PageView(
                 controller: controller,
                 physics: NeverScrollableScrollPhysics(),
@@ -306,6 +314,12 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
   }
 
   Widget _header(BuildContext context) {
+    // Desktop has the sidebar as the window-level navigation, so a second
+    // "Settings" heading here would only duplicate it. The web build has no
+    // sidebar and keeps the title with a back button.
+    if (!isWeb) {
+      return const SizedBox.shrink();
+    }
     final settingsText = Text(
       translate('Settings'),
       textAlign: TextAlign.left,
@@ -317,28 +331,21 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
     );
     return Row(
       children: [
-        if (isWeb)
-          IconButton(
-            onPressed: () {
-              if (Navigator.canPop(context)) {
-                Navigator.pop(context);
-              }
-            },
-            icon: Icon(Icons.arrow_back),
-          ).marginOnly(left: 5),
-        if (isWeb)
-          SizedBox(
-            height: 62,
-            child: Align(
-              alignment: Alignment.center,
-              child: settingsText,
-            ),
-          ).marginOnly(left: 20),
-        if (!isWeb)
-          SizedBox(
-            height: 62,
+        IconButton(
+          onPressed: () {
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            }
+          },
+          icon: Icon(Icons.arrow_back),
+        ).marginOnly(left: 5),
+        SizedBox(
+          height: 62,
+          child: Align(
+            alignment: Alignment.center,
             child: settingsText,
-          ).marginOnly(left: 20, top: 10),
+          ),
+        ).marginOnly(left: 20),
         const Spacer(),
       ],
     );
@@ -475,21 +482,26 @@ class _GeneralState extends State<_General> {
 
     final isOptFixed = isOptionFixed(kCommConfKeyTheme);
     return _Card(title: 'Theme', children: [
-      _Radio<String>(context,
-          value: 'light',
-          groupValue: current,
-          label: 'Light',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio<String>(context,
-          value: 'dark',
-          groupValue: current,
-          label: 'Dark',
-          onChanged: isOptFixed ? null : onChanged),
-      _Radio<String>(context,
-          value: 'system',
-          groupValue: current,
-          label: 'Follow System',
-          onChanged: isOptFixed ? null : onChanged),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: SegmentedButton<String>(
+          segments: [
+            ButtonSegment(value: 'light', label: Text(translate('Light'))),
+            ButtonSegment(value: 'dark', label: Text(translate('Dark'))),
+            ButtonSegment(
+                value: 'system', label: Text(translate('Follow System'))),
+          ],
+          selected: {current},
+          onSelectionChanged: isOptFixed
+              ? null
+              : (selection) => onChanged(selection.first),
+          showSelectedIcon: false,
+          style: const ButtonStyle(
+            visualDensity: VisualDensity.compact,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ),
+      ).marginOnly(bottom: 4),
     ]);
   }
 
@@ -780,15 +792,21 @@ class _GeneralState extends State<_General> {
     }
 
     builder(devices, currentDevice, setDevice) {
-      final child = ComboBox(
-        keys: devices,
-        values: devices,
-        initialKey: currentDevice,
-        onChanged: (key) async {
-          setDevice(key);
-          setState(() {});
-        },
-      ).marginOnly(left: _kContentHMargin);
+      final child = Align(
+        alignment: Alignment.centerLeft,
+        child: SizedBox(
+          width: 300,
+          child: ComboBox(
+            keys: devices,
+            values: devices,
+            initialKey: currentDevice,
+            onChanged: (key) async {
+              setDevice(key);
+              setState(() {});
+            },
+          ).marginOnly(left: _kContentHMargin),
+        ),
+      );
       return _Card(title: 'Audio Input Device', children: [child]);
     }
 
@@ -909,18 +927,24 @@ class _GeneralState extends State<_General> {
         currentKey = defaultOptionLang;
       }
       final isOptFixed = isOptionFixed(kCommConfKeyLang);
-      return ComboBox(
-        keys: keys,
-        values: values,
-        initialKey: currentKey,
-        onChanged: (key) async {
-          await bind.mainSetLocalOption(key: kCommConfKeyLang, value: key);
-          if (isWeb) reloadCurrentWindow();
-          if (!isWeb) reloadAllWindows();
-          if (!isWeb) bind.mainChangeLanguage(lang: key);
-        },
-        enabled: !isOptFixed,
-      ).marginOnly(left: _kContentHMargin);
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: SizedBox(
+          width: 300,
+          child: ComboBox(
+            keys: keys,
+            values: values,
+            initialKey: currentKey,
+            onChanged: (key) async {
+              await bind.mainSetLocalOption(key: kCommConfKeyLang, value: key);
+              if (isWeb) reloadCurrentWindow();
+              if (!isWeb) reloadAllWindows();
+              if (!isWeb) bind.mainChangeLanguage(lang: key);
+            },
+            enabled: !isOptFixed,
+          ).marginOnly(left: _kContentHMargin),
+        ),
+      );
     });
   }
 
@@ -2593,9 +2617,11 @@ class _AboutState extends State<_About> {
       final myId = data['myId'].toString();
       const linkStyle = TextStyle(decoration: TextDecoration.underline);
       final scrollController = ScrollController();
+      final appName = bind.mainGetAppNameSync();
+      final website = 'https://rd.wh.easylan.site';
       return SingleChildScrollView(
         controller: scrollController,
-        child: _Card(title: translate('About RustDesk'), children: [
+        child: _Card(title: '${translate('About')} $appName', children: [
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2617,15 +2643,7 @@ class _AboutState extends State<_About> {
                       .marginSymmetric(vertical: 4.0)),
               InkWell(
                   onTap: () {
-                    launchUrlString('https://rustdesk.com/privacy.html');
-                  },
-                  child: Text(
-                    translate('Privacy Statement'),
-                    style: linkStyle,
-                  ).marginSymmetric(vertical: 4.0)),
-              InkWell(
-                  onTap: () {
-                    launchUrlString('https://rustdesk.com');
+                    launchUrlString(website);
                   },
                   child: Text(
                     translate('Website'),
@@ -2643,15 +2661,9 @@ class _AboutState extends State<_About> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Copyright © ${DateTime.now().toString().substring(0, 4)} Purslane Tech Pte. Ltd.\n$license',
+                            'Copyright © ${DateTime.now().toString().substring(0, 4)} EasyLAN\n$license',
                             style: const TextStyle(color: Colors.white),
                           ),
-                          Text(
-                            translate('Slogan_tip'),
-                            style: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white),
-                          )
                         ],
                       ),
                     ),
@@ -2690,17 +2702,18 @@ Widget _Card(
                       translate(title),
                       textAlign: TextAlign.start,
                       style: const TextStyle(
-                        fontSize: _kTitleFontSize,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
                       ),
                     )),
                     ...?title_suffix
                   ],
-                ).marginOnly(left: _kContentHMargin, top: 10, bottom: 10),
+                ).marginOnly(left: _kContentHMargin, top: 10, bottom: 6),
                 ...children
-                    .map((e) => e.marginOnly(top: 4, right: _kContentHMargin)),
+                    .map((e) => e.marginOnly(top: 2, right: _kContentHMargin)),
               ],
-            ).marginOnly(bottom: 10),
-          ).marginOnly(left: _kCardLeftMargin, top: 15),
+            ).marginOnly(bottom: 6),
+          ).marginOnly(left: _kCardLeftMargin, top: 10),
         ),
       ),
     ],
