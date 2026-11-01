@@ -136,6 +136,8 @@ strings target/release/rustdesk | grep test.example.com   # 命中即注入成�
 - **类型报错先怀疑脏工作区**：曾遇到 `src/ui.rs:39` 的 `E0308 expected &mut [String],
   found &mut CoreMainAction`，实际是 `src/main.rs` 处于合并前的旧版本。用
   `git diff 1.5.1 -- <file>` 确认后再调试。
-- **未提交的 Flutter UI WIP**：工作区有 `desktop_tab_page.dart` / `desktop_home_page.dart` /
-  `tabbar_widget.dart` 的改动 + 未跟踪的 `sidebar_widget.dart`。这些不影响 Rust 构建，
-  但 Flutter 构建前需要先提交，否则 CI 会因 import 到未提交文件而失败。
+- **Flutter UI 改造已提交**：窗口侧栏、主页重设计、设置裁剪、白标与 Xcode 27
+  适配的完整说明见 `docs/UI-REDESIGN-2026-11.md`。
+- **预设注入**：`source local_build_env.sh` 会经 `.github/presets/env.sh`
+  导出 `RUSTDESK_PRESET_*`，把 `full-client.json` 的默认值与 UI 裁剪烘进
+  每次本地构建（改动 `src/` 或预设后需先 `cargo build --lib` 再 `flutter build`）。

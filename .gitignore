@@ -60,3 +60,8 @@ flutter/web/
 /third_party/libdrmtap/
 # Local git worktrees
 .worktrees/
+
+# Local per-machine build env and task materials (not for the repo)
+local_build_env.sh
+特性/
+.zcode/
