@@ -117,7 +117,19 @@ class ButtonOP extends StatelessWidget {
         width: 200,
         child: Obx(() => ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: primaryColor,
+              // Theme-tonal instead of a random pastel per provider name,
+              // matching the rest of the dialog.
+              backgroundColor:
+                  Theme.of(context).colorScheme.primary.withOpacity(0.06),
+              foregroundColor: Theme.of(context).colorScheme.primary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+                side: BorderSide(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .primary
+                        .withOpacity(0.35)),
+              ),
             ).copyWith(elevation: ButtonStyleButton.allOrNull(0.0)),
             onPressed:
                 curOP.value == 'rustdesk' || !canStartAuth() ? null : onTap,
@@ -737,6 +749,7 @@ Future<bool?> _openLoginDialog() async {
   final loginOptions = [].obs;
   final loginOptionsError = Rxn<Object>();
   final loginOptionsInProgress = false.obs;
+  final serverHint = await bind.mainGetOption(key: 'custom-rendezvous-server');
   fetchLoginOptions() async {
     loginOptionsInProgress.value = true;
     try {
@@ -818,7 +831,7 @@ Future<bool?> _openLoginDialog() async {
           }
           break;
         default:
-          passwordMsg = "Failed, bad response from server";
+          passwordMsg = translate("Login failed");
           break;
       }
     }
@@ -850,7 +863,7 @@ Future<bool?> _openLoginDialog() async {
       } on RequestException catch (err) {
         passwordMsg = translate(err.cause);
       } catch (err) {
-        passwordMsg = "Unknown Error: $err";
+        passwordMsg = "${translate('Login failed')}: $err";
       }
       curOP.value = '';
       setState(() => isInProgress = false);
@@ -975,6 +988,18 @@ Future<bool?> _openLoginDialog() async {
           const SizedBox(
             height: 8.0,
           ),
+          if (serverHint.isNotEmpty)
+            Text(
+              '${translate('Server')}: $serverHint',
+              style: TextStyle(
+                fontSize: 11,
+                color: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.color
+                    ?.withOpacity(0.45),
+              ),
+            ).marginOnly(bottom: 4),
           LoginWidgetUserPass(
             username: username,
             pass: password,
@@ -1033,13 +1058,13 @@ Future<bool?> verificationCodeDialog(
             }
             break;
           default:
-            errorText = "Failed, bad response from server";
+            errorText = translate("Login failed");
             break;
         }
       } on RequestException catch (err) {
         errorText = translate(err.cause);
       } catch (err) {
-        errorText = "Unknown Error: $err";
+        errorText = "${translate('Login failed')}: $err";
       }
 
       setState(() => isInProgress = false);

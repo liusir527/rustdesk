@@ -73,39 +73,66 @@ class _AddressBookState extends State<AddressBook> {
       });
 
   Widget _buildAddressBookLandscape() {
-    return Row(
+    return Column(
       children: [
         Offstage(
-            offstage: hideAbTagsPanel.value,
-            child: Container(
-              decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                      color: Theme.of(context).colorScheme.background)),
-              child: Container(
-                width: 200,
-                height: double.infinity,
-                child: Column(
-                  children: [
-                    _buildAbDropdown(),
-                    _buildTagHeader().marginOnly(
-                        left: 8.0,
-                        right: gFFI.abModel.legacyMode.value ? 8.0 : 0,
-                        top: gFFI.abModel.legacyMode.value ? 8.0 : 0),
-                    Expanded(
-                      child: Container(
-                        width: double.infinity,
-                        height: double.infinity,
-                        child: _buildTags(),
-                      ),
-                    ),
-                    _buildAbPermission(),
-                  ],
+          offstage: hideAbTagsPanel.value,
+          child: _buildAbToolbar(),
+        ),
+        Expanded(child: _buildPeersViews()),
+      ],
+    );
+  }
+
+  /// One compact toolbar row: address book picker, tag filter chips and the
+  /// share-permission indicators — replaces the old 200px left panel.
+  Widget _buildAbToolbar() {
+    return Container(
+      padding: const EdgeInsets.only(left: 12, right: 12, bottom: 6),
+      child: Obx(() {
+        final tags = gFFI.abModel.currentAbTags.toList();
+        final editPermission = gFFI.abModel.current.canWrite();
+        return SizedBox(
+          height: 44,
+          child: Row(
+            children: [
+              SizedBox(width: 200, child: _buildAbDropdown()),
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final e in [kUntagged, ...tags])
+                        AddressBookTag(
+                          name: e,
+                          tags: gFFI.abModel.selectedTags,
+                          onTap: () {
+                            if (gFFI.abModel.selectedTags.contains(e)) {
+                              gFFI.abModel.selectedTags.remove(e);
+                            } else {
+                              gFFI.abModel.selectedTags.add(e);
+                            }
+                          },
+                          showActionMenu: editPermission,
+                        ),
+                    ],
+                  ),
                 ),
               ),
-            ).marginOnly(right: 12.0)),
-        _buildPeersViews()
-      ],
+              Listener(
+                onPointerDown: (e) {
+                  final x = e.position.dx;
+                  final y = e.position.dy;
+                  menuPos = RelativeRect.fromLTRB(x, y, x, y);
+                },
+                onPointerUp: (_) => _showMenu(menuPos),
+                child: build_more(context, invert: true),
+              ),
+              _buildAbPermission(),
+            ],
+          ),
+        );
+      }),
     );
   }
 
@@ -243,7 +270,12 @@ class _AddressBookState extends State<AddressBook> {
               }
             },
       customButton: Obx(() => Container(
-            height: stateGlobal.isPortrait.isFalse ? 48 : 40,
+            height: stateGlobal.isPortrait.isFalse ? 36 : 40,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.background,
+              borderRadius: BorderRadius.circular(8),
+            ),
             child: Row(children: [
               Expanded(
                   child:

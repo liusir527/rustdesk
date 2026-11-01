@@ -3,6 +3,8 @@ import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_home_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
+import 'package:flutter_hbb/desktop/widgets/permission_wizard.dart';
+import 'package:flutter_hbb/desktop/widgets/sidebar_widget.dart';
 import 'package:flutter_hbb/desktop/widgets/tabbar_widget.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
@@ -69,6 +71,13 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
   void initState() {
     super.initState();
     // HardwareKeyboard.instance.addHandler(_handleKeyEvent);
+    if (isMacOS && !isWeb) {
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted) {
+          maybeShowPermissionWizard(context);
+        }
+      });
+    }
   }
 
   /*
@@ -91,11 +100,13 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
 
   @override
   Widget build(BuildContext context) {
+    final showSidebar = !bind.isIncomingOnly();
     final tabWidget = Container(
         child: Scaffold(
             backgroundColor: Theme.of(context).colorScheme.background,
             body: DesktopTab(
               controller: tabController,
+              leading: showSidebar ? DesktopSidebar(controller: tabController) : null,
               tail: Offstage(
                 offstage: bind.isIncomingOnly() || bind.isDisableSettings(),
                 child: ActionIcon(

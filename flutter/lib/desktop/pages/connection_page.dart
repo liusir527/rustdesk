@@ -5,7 +5,6 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_hbb/common/widgets/connection_page_title.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/widgets/popup_menu.dart';
 import 'package:flutter_hbb/models/state_model.dart';
@@ -198,58 +197,17 @@ class ConnectionPage extends StatefulWidget {
 /// State for the connection page.
 class _ConnectionPageState extends State<ConnectionPage>
     with SingleTickerProviderStateMixin, WindowListener {
-  /// Controller for the id input bar.
-  final _idController = IDTextEditingController();
-
-  final RxBool _idInputFocused = false.obs;
-  final FocusNode _idFocusNode = FocusNode();
-  final TextEditingController _idEditingController = TextEditingController();
-
-  String selectedConnectionType = 'Connect';
-
   bool isWindowMinimized = false;
-
-  final AllPeersLoader _allPeersLoader = AllPeersLoader();
-
-  // https://github.com/flutter/flutter/issues/157244
-  Iterable<Peer> _autocompleteOpts = [];
-
-  final _menuOpen = false.obs;
 
   @override
   void initState() {
     super.initState();
-    _allPeersLoader.init(setState);
-    _idFocusNode.addListener(onFocusChanged);
-    if (_idController.text.isEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        final lastRemoteId = await bind.mainGetLastRemoteId();
-        if (lastRemoteId != _idController.id) {
-          setState(() {
-            _idController.id = lastRemoteId;
-          });
-        }
-      });
-    }
-    Get.put<TextEditingController>(_idEditingController);
-    Get.put<IDTextEditingController>(_idController);
     windowManager.addListener(this);
   }
 
   @override
   void dispose() {
-    _idController.dispose();
     windowManager.removeListener(this);
-    _allPeersLoader.clear();
-    _idFocusNode.removeListener(onFocusChanged);
-    _idFocusNode.dispose();
-    _idEditingController.dispose();
-    if (Get.isRegistered<IDTextEditingController>()) {
-      Get.delete<IDTextEditingController>();
-    }
-    if (Get.isRegistered<TextEditingController>()) {
-      Get.delete<TextEditingController>();
-    }
     super.dispose();
   }
 
@@ -287,6 +245,79 @@ class _ConnectionPageState extends State<ConnectionPage>
     bind.mainOnMainWindowClose();
   }
 
+  @override
+  Widget build(BuildContext context) {
+    final isOutgoingOnly = bind.isOutgoingOnly();
+    return Column(
+      children: [
+        Expanded(child: PeerTabPage(showSwitchBar: false)),
+        if (!isOutgoingOnly) const Divider(height: 1),
+        if (!isOutgoingOnly) OnlineStatusWidget()
+      ],
+    );
+  }
+
+}
+
+/// Compact connect-by-ID row: the ID field with autocomplete, the connect
+/// action and the connection-type menu. Sized by the parent.
+class RemoteIdInput extends StatefulWidget {
+  const RemoteIdInput({Key? key}) : super(key: key);
+
+  @override
+  State<RemoteIdInput> createState() => _RemoteIdInputState();
+}
+
+class _RemoteIdInputState extends State<RemoteIdInput> {
+  /// Controller for the id input bar.
+  final _idController = IDTextEditingController();
+
+  final RxBool _idInputFocused = false.obs;
+  final FocusNode _idFocusNode = FocusNode();
+  final TextEditingController _idEditingController = TextEditingController();
+
+  final AllPeersLoader _allPeersLoader = AllPeersLoader();
+
+  // https://github.com/flutter/flutter/issues/157244
+  Iterable<Peer> _autocompleteOpts = [];
+
+  final _menuOpen = false.obs;
+
+  @override
+  void initState() {
+    super.initState();
+    _allPeersLoader.init(setState);
+    _idFocusNode.addListener(onFocusChanged);
+    if (_idController.text.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        final lastRemoteId = await bind.mainGetLastRemoteId();
+        if (lastRemoteId != _idController.id) {
+          setState(() {
+            _idController.id = lastRemoteId;
+          });
+        }
+      });
+    }
+    Get.put<TextEditingController>(_idEditingController);
+    Get.put<IDTextEditingController>(_idController);
+  }
+
+  @override
+  void dispose() {
+    _idController.dispose();
+    _allPeersLoader.clear();
+    _idFocusNode.removeListener(onFocusChanged);
+    _idFocusNode.dispose();
+    _idEditingController.dispose();
+    if (Get.isRegistered<IDTextEditingController>()) {
+      Get.delete<IDTextEditingController>();
+    }
+    if (Get.isRegistered<TextEditingController>()) {
+      Get.delete<TextEditingController>();
+    }
+    super.dispose();
+  }
+
   void onFocusChanged() {
     _idInputFocused.value = _idFocusNode.hasFocus;
     if (_idFocusNode.hasFocus) {
@@ -299,30 +330,6 @@ class _ConnectionPageState extends State<ConnectionPage>
       _idEditingController.selection =
           TextSelection(baseOffset: 0, extentOffset: textLength);
     }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isOutgoingOnly = bind.isOutgoingOnly();
-    return Column(
-      children: [
-        Expanded(
-            child: Column(
-          children: [
-            Row(
-              children: [
-                Flexible(child: _buildRemoteIDTextField(context)),
-              ],
-            ).marginOnly(top: 22),
-            SizedBox(height: 12),
-            Divider().paddingOnly(right: 12),
-            Expanded(child: PeerTabPage()),
-          ],
-        ).paddingOnly(left: 12.0)),
-        if (!isOutgoingOnly) const Divider(height: 1),
-        if (!isOutgoingOnly) OnlineStatusWidget()
-      ],
-    );
   }
 
   /// Callback for the connect button.
@@ -340,23 +347,31 @@ class _ConnectionPageState extends State<ConnectionPage>
         isTcpTunneling: isTcpTunneling);
   }
 
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(child: _buildIdField(context)),
+        const SizedBox(width: 8),
+        SizedBox(
+          height: 36,
+          child: ElevatedButton(
+            onPressed: () {
+              onConnect();
+            },
+            child: Text(translate("Connect")),
+          ),
+        ),
+        const SizedBox(width: 8),
+        _buildMoreButton(context),
+      ],
+    );
+  }
+
   /// UI for the remote ID TextField.
   /// Search for a peer.
-  Widget _buildRemoteIDTextField(BuildContext context) {
-    var w = Container(
-      width: 320 + 20 * 2,
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
-      decoration: BoxDecoration(
-          borderRadius: const BorderRadius.all(Radius.circular(13)),
-          border: Border.all(color: Theme.of(context).colorScheme.background)),
-      child: Ink(
-        child: Column(
-          children: [
-            getConnectionPageTitle(context, false).marginOnly(bottom: 15),
-            Row(
-              children: [
-                Expanded(
-                    child: RawAutocomplete<Peer>(
+  Widget _buildIdField(BuildContext context) {
+    return RawAutocomplete<Peer>(
                   optionsBuilder: (TextEditingValue textEditingValue) {
                     if (textEditingValue.text == '') {
                       _autocompleteOpts = const Iterable<Peer>.empty();
@@ -421,8 +436,8 @@ class _ConnectionPageState extends State<ConnectionPage>
                           focusNode: fieldFocusNode,
                           style: const TextStyle(
                             fontFamily: 'WorkSans',
-                            fontSize: 22,
-                            height: 1.4,
+                            fontSize: 16,
+                            height: 1.2,
                           ),
                           maxLines: 1,
                           cursorColor:
@@ -434,7 +449,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                                   ? null
                                   : translate('Enter Remote ID'),
                               contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 15, vertical: 13)),
+                                  horizontal: 12, vertical: 10)),
                           controller: fieldTextEditingController,
                           inputFormatters: [IDTextInputFormatter()],
                           onChanged: (v) {
@@ -512,115 +527,90 @@ class _ConnectionPageState extends State<ConnectionPage>
                               ))),
                     );
                   },
-                )),
-              ],
-            ),
-            Padding(
-              padding: const EdgeInsets.only(top: 13.0),
-              child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                SizedBox(
-                  height: 28.0,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      onConnect();
-                    },
-                    child: Text(translate("Connect")),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  height: 28.0,
-                  width: 28.0,
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Theme.of(context).dividerColor),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Center(
-                    child: StatefulBuilder(
-                      builder: (context, setState) {
-                        var offset = Offset(0, 0);
-                        return Obx(() => InkWell(
-                              child: _menuOpen.value
-                                  ? Transform.rotate(
-                                      angle: pi,
-                                      child: Icon(IconFont.more, size: 14),
-                                    )
-                                  : Icon(IconFont.more, size: 14),
-                              onTapDown: (e) {
-                                offset = e.globalPosition;
-                              },
-                              onTap: () async {
-                                _menuOpen.value = true;
-                                final x = offset.dx;
-                                final y = offset.dy;
-                                await mod_menu
-                                    .showMenu(
-                                  context: context,
-                                  position: RelativeRect.fromLTRB(x, y, x, y),
-                                  items: [
-                                    (
-                                      'Transfer file',
-                                      () => onConnect(isFileTransfer: true)
-                                    ),
-                                    (
-                                      'View camera',
-                                      () => onConnect(isViewCamera: true)
-                                    ),
-                                    (
-                                      '${translate('Terminal')} (beta)',
-                                      () => onConnect(isTerminal: true)
-                                    ),
-                                    // `connect` routes this through the
-                                    // desktop path only; the peer card gates
-                                    // it the same way.
-                                    if (isDesktop)
-                                      (
-                                        'TCP tunneling',
-                                        () => onConnect(isTcpTunneling: true)
-                                      ),
-                                  ]
-                                      .map((e) => MenuEntryButton<String>(
-                                            childBuilder: (TextStyle? style) =>
-                                                Text(
-                                              translate(e.$1),
-                                              style: style,
-                                            ),
-                                            proc: () => e.$2(),
-                                            padding: EdgeInsets.symmetric(
-                                                horizontal:
-                                                    kDesktopMenuPadding.left),
-                                            dismissOnClicked: true,
-                                          ))
-                                      .map((e) => e.build(
-                                          context,
-                                          const MenuConfig(
-                                              commonColor: CustomPopupMenuTheme
-                                                  .commonColor,
-                                              height:
-                                                  CustomPopupMenuTheme.height,
-                                              dividerHeight:
-                                                  CustomPopupMenuTheme
-                                                      .dividerHeight)))
-                                      .expand((i) => i)
-                                      .toList(),
-                                  elevation: 8,
-                                )
-                                    .then((_) {
-                                  _menuOpen.value = false;
-                                });
-                              },
-                            ));
-                      },
-                    ),
-                  ),
-                ),
-              ]),
-            ),
-          ],
+                );
+  }
+
+  Widget _buildMoreButton(BuildContext context) {
+    return Container(
+      height: 36.0,
+      width: 36.0,
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Center(
+        child: StatefulBuilder(
+          builder: (context, setState) {
+            var offset = Offset(0, 0);
+            return Obx(() => InkWell(
+                  child: _menuOpen.value
+                      ? Transform.rotate(
+                          angle: pi,
+                          child: Icon(IconFont.more, size: 14),
+                        )
+                      : Icon(IconFont.more, size: 14),
+                  onTapDown: (e) {
+                    offset = e.globalPosition;
+                  },
+                  onTap: () async {
+                    _menuOpen.value = true;
+                    final x = offset.dx;
+                    final y = offset.dy;
+                    await mod_menu
+                        .showMenu(
+                      context: context,
+                      position: RelativeRect.fromLTRB(x, y, x, y),
+                      items: [
+                        (
+                          'Transfer file',
+                          () => onConnect(isFileTransfer: true)
+                        ),
+                        (
+                          'View camera',
+                          () => onConnect(isViewCamera: true)
+                        ),
+                        (
+                          '${translate('Terminal')} (beta)',
+                          () => onConnect(isTerminal: true)
+                        ),
+                        // `connect` routes this through the
+                        // desktop path only; the peer card gates
+                        // it the same way.
+                        if (isDesktop)
+                          (
+                            'TCP tunneling',
+                            () => onConnect(isTcpTunneling: true)
+                          ),
+                      ]
+                          .map((e) => MenuEntryButton<String>(
+                                childBuilder: (TextStyle? style) => Text(
+                                  translate(e.$1),
+                                  style: style,
+                                ),
+                                proc: () => e.$2(),
+                                padding: EdgeInsets.symmetric(
+                                    horizontal: kDesktopMenuPadding.left),
+                                dismissOnClicked: true,
+                              ))
+                          .map((e) => e.build(
+                              context,
+                              const MenuConfig(
+                                  commonColor: CustomPopupMenuTheme.commonColor,
+                                  height: CustomPopupMenuTheme.height,
+                                  dividerHeight:
+                                      CustomPopupMenuTheme.dividerHeight)))
+                          .expand((i) => i)
+                          .toList(),
+                      elevation: 8,
+                    )
+                        .then((_) {
+                      _menuOpen.value = false;
+                    });
+                  },
+                ));
+          },
         ),
       ),
     );
-    return Container(
-        constraints: const BoxConstraints(maxWidth: 600), child: w);
   }
 }

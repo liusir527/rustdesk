@@ -410,6 +410,9 @@ WindowOptions getHiddenTitleBarWindowOptions(
   }
   return WindowOptions(
     size: size,
+    // The main window packs the ID/OTP/connect toolbar and peer cards; below
+    // this the essential info can no longer render properly.
+    minimumSize: isMainWindow ? const Size(980, 620) : null,
     center: center,
     backgroundColor: (isMacOS && isMainWindow) ? null : Colors.transparent,
     skipTaskbar: false,

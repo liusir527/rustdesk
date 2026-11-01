@@ -12,6 +12,7 @@ import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/pages/connection_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
+import 'package:flutter_hbb/desktop/widgets/tabbar_widget.dart';
 import 'package:flutter_hbb/desktop/widgets/update_progress.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/server_model.dart';
@@ -59,15 +60,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget build(BuildContext context) {
     super.build(context);
     final isIncomingOnly = bind.isIncomingOnly();
+    if (isIncomingOnly) {
+      return _buildBlock(child: buildLeftPane(context));
+    }
     return _buildBlock(
-        child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        buildLeftPane(context),
-        if (!isIncomingOnly) const VerticalDivider(width: 1),
-        if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
-      ],
-    ));
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [Expanded(child: buildRightPane(context))],
+      ),
+    );
   }
 
   Widget _buildBlock({required Widget child}) {
@@ -181,14 +182,172 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   buildRightPane(BuildContext context) {
     return Container(
       color: Theme.of(context).scaffoldBackgroundColor,
-      child: ConnectionPage(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (!bind.isOutgoingOnly()) buildPresetPasswordWarning(),
+          _buildTopToolbar(context),
+          buildHelpCardsSection(),
+          Expanded(child: ConnectionPage()),
+        ],
+      ),
+    );
+  }
+
+  Widget buildHelpCardsSection() {
+    return FutureBuilder<Widget>(
+      future: Future.value(
+          Obx(() => buildHelpCards(stateGlobal.updateUrl.value))),
+      builder: (_, data) {
+        if (data.hasData) {
+          return data.data!.paddingOnly(left: 12, right: 12);
+        }
+        return const SizedBox.shrink();
+      },
+    );
+  }
+
+  /// Device ID, one-time password and the connect action in one compact row
+  /// at the top of the main content, ToDesk style. Doubles as the window
+  /// drag handle: the 28px tab bar that used to own that role is hidden when
+  /// only the home tab is open.
+  Widget _buildTopToolbar(BuildContext context) {
+    final isOutgoingOnly = bind.isOutgoingOnly();
+    return ChangeNotifierProvider.value(
+      value: gFFI.serverModel,
+      child: Consumer<ServerModel>(
+        builder: (context, model, child) {
+          final showOneTime = model.approveMode != 'click' &&
+              model.verificationMethod != kUsePermanentPassword;
+          return GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onPanStart: (_) => startDragging(true),
+            child: Container(
+              padding: const EdgeInsets.only(
+                  left: 16, right: 16, top: 14, bottom: 10),
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardColor,
+                border: Border(
+                  bottom: BorderSide(
+                      color: Theme.of(context).dividerColor, width: 0.5),
+                ),
+              ),
+              child: Row(
+                children: [
+                  if (!isOutgoingOnly) _buildIdChip(context, model),
+                  if (!isOutgoingOnly && showOneTime) ...[
+                    Container(
+                      width: 1,
+                      height: 24,
+                      color: Theme.of(context).dividerColor,
+                    ).marginSymmetric(horizontal: 12),
+                    _buildOtpChip(context, model),
+                  ],
+                  const Spacer(),
+                  const SizedBox(width: 300, child: RemoteIdInput()),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildIdChip(BuildContext context, ServerModel model) {
+    final textColor = Theme.of(context).textTheme.titleLarge?.color;
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () {
+        Clipboard.setData(ClipboardData(text: model.serverId.text));
+        showToast(translate("Copied"));
+      },
+      child: Tooltip(
+        message: translate('Copy'),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.background,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: AnimatedBuilder(
+            animation: model.serverId,
+            builder: (context, _) => Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Text('ID',
+                    style: TextStyle(
+                        fontSize: 11, color: textColor?.withOpacity(0.5))),
+                const SizedBox(width: 8),
+                Text(model.serverId.text,
+                    style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                        color: textColor)),
+                const SizedBox(width: 8),
+                Icon(Icons.copy_rounded,
+                    size: 14, color: textColor?.withOpacity(0.5)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOtpChip(BuildContext context, ServerModel model) {
+    final textColor = Theme.of(context).textTheme.titleLarge?.color;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.background,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: AnimatedBuilder(
+        animation: model.serverPasswd,
+        builder: (context, _) => Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(translate('One-time Password'),
+                style: TextStyle(
+                    fontSize: 11, color: textColor?.withOpacity(0.5))),
+            const SizedBox(width: 8),
+            Text(model.serverPasswd.text,
+                style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                    color: textColor)),
+            const SizedBox(width: 8),
+            InkWell(
+              onTap: () => bind.mainUpdateTemporaryPassword(),
+              child: Tooltip(
+                message: translate('Refresh Password'),
+                child: Icon(Icons.refresh_rounded,
+                    size: 16, color: textColor?.withOpacity(0.6)),
+              ),
+            ),
+            if (!bind.isDisableSettings())
+              Tooltip(
+                message: translate('Change Password'),
+                child: InkWell(
+                  onTap: () =>
+                      DesktopSettingPage.switch2page(SettingsTabKey.safety),
+                  child: Icon(Icons.edit_rounded,
+                      size: 14, color: textColor?.withOpacity(0.6)),
+                ),
+              ).marginOnly(left: 6),
+          ],
+        ),
+      ),
     );
   }
 
   buildIDBoard(BuildContext context) {
     final model = gFFI.serverModel;
     return Container(
-      margin: const EdgeInsets.only(left: 20, right: 11),
+      margin: const EdgeInsets.only(right: 8),
       height: 57,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -295,7 +454,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final showOneTime = model.approveMode != 'click' &&
         model.verificationMethod != kUsePermanentPassword;
     return Container(
-      margin: EdgeInsets.only(left: 20.0, right: 16, top: 13, bottom: 13),
+      margin: const EdgeInsets.only(left: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
@@ -577,7 +736,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   Widget buildInstallCard(String title, String content, String btnText,
       GestureTapCallback onPressed,
-      {double marginTop = 20.0,
+      {double marginTop = 10.0,
       String? help,
       String? link,
       bool? closeButton,
@@ -601,104 +760,67 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       }
     }
 
-    return Stack(
-      children: [
-        Container(
-          margin: EdgeInsets.fromLTRB(
-              0, marginTop, 0, bind.isIncomingOnly() ? marginTop : 0),
-          child: Container(
-              decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: [
-                  Color.fromARGB(255, 226, 66, 188),
-                  Color.fromARGB(255, 244, 114, 124),
-                ],
-              )),
-              padding: EdgeInsets.all(20),
-              child: Column(
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: (title.isNotEmpty
-                          ? <Widget>[
-                              Center(
-                                  child: Text(
-                                translate(title),
-                                style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 15),
-                              ).marginOnly(bottom: 6)),
-                            ]
-                          : <Widget>[]) +
-                      <Widget>[
-                        if (content.isNotEmpty)
-                          Text(
-                            translate(content),
-                            style: TextStyle(
-                                height: 1.5,
-                                color: Colors.white,
-                                fontWeight: FontWeight.normal,
-                                fontSize: 13),
-                          ).marginOnly(bottom: 20)
-                      ] +
-                      (btnText.isNotEmpty
-                          ? <Widget>[
-                              Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    FixedWidthButton(
-                                      width: 150,
-                                      padding: 8,
-                                      isOutline: true,
-                                      text: translate(btnText),
-                                      textColor: Colors.white,
-                                      borderColor: Colors.white,
-                                      textSize: 20,
-                                      radius: 10,
-                                      onTap: onPressed,
-                                    )
-                                  ])
-                            ]
-                          : <Widget>[]) +
-                      (help != null
-                          ? <Widget>[
-                              Center(
-                                  child: InkWell(
-                                      onTap: () async =>
-                                          await launchUrl(Uri.parse(link!)),
-                                      child: Text(
-                                        translate(help),
-                                        style: TextStyle(
-                                            decoration:
-                                                TextDecoration.underline,
-                                            color: Colors.white,
-                                            fontSize: 12),
-                                      )).marginOnly(top: 6)),
-                            ]
-                          : <Widget>[]))),
-        ),
-        if (closeButton != null && closeButton == true)
-          Positioned(
-            top: 18,
-            right: 0,
-            child: IconButton(
+    final accent = MyTheme.accent;
+    return Container(
+      margin: EdgeInsets.fromLTRB(0, marginTop, 0, 0),
+      padding: const EdgeInsets.only(left: 10, right: 4, top: 5, bottom: 5),
+      decoration: BoxDecoration(
+        color: accent.withOpacity(0.06),
+        borderRadius: const BorderRadius.all(Radius.circular(8)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline_rounded, size: 16, color: accent),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              translate(content.isNotEmpty ? content : title),
+              style: TextStyle(height: 1.3, fontSize: 12),
+            ),
+          ),
+          if (btnText.isNotEmpty)
+            FixedWidthButton(
+              width: 88,
+              padding: 4,
+              isOutline: true,
+              text: translate(btnText),
+              textColor: accent,
+              borderColor: accent,
+              textSize: 13,
+              radius: 8,
+              onTap: onPressed,
+            ).marginOnly(left: 10),
+          if (help != null)
+            InkWell(
+                onTap: () async => await launchUrl(Uri.parse(link!)),
+                child: Text(
+                  translate(help),
+                  style: TextStyle(
+                      decoration: TextDecoration.underline,
+                      color: accent,
+                      fontSize: 12),
+                )).marginOnly(left: 10),
+          if (closeButton != null && closeButton == true)
+            IconButton(
               icon: Icon(
                 Icons.close,
-                color: Colors.white,
-                size: 20,
+                size: 16,
               ),
               onPressed: closeCard,
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 
   @override
   void initState() {
     super.initState();
+    // Watch from the start so a permission granted directly in System
+    // Settings clears its card without requiring the Configure click.
+    watchIsCanScreenRecording = true;
+    watchIsProcessTrust = true;
+    watchIsInputMonitoring = true;
     _updateTimer = periodic_immediate(const Duration(seconds: 1), () async {
       await gFFI.serverModel.fetchID();
       final error = await bind.mainGetError();

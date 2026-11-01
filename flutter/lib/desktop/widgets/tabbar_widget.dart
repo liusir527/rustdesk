@@ -252,6 +252,8 @@ class DesktopTab extends StatefulWidget {
   final Color? selectedTabBackgroundColor;
   final Color? unSelectedTabBackgroundColor;
   final Color? selectedBorderColor;
+  // Window level navigation rail shown left of the tab bar and the page view.
+  final Widget? leading;
 
   final DesktopTabController controller;
 
@@ -277,6 +279,7 @@ class DesktopTab extends StatefulWidget {
     this.selectedTabBackgroundColor,
     this.unSelectedTabBackgroundColor,
     this.selectedBorderColor,
+    this.leading,
   }) : super(key: key);
 
   static RxString tablabelGetter(String peerId) {
@@ -520,10 +523,13 @@ class _DesktopTabState extends State<DesktopTab>
 
   @override
   Widget build(BuildContext context) {
-    return Column(children: [
+    final body = Column(children: [
       Obx(() {
         if (stateGlobal.showTabBar.isTrue &&
-            !(kUseCompatibleUiMode && isHideSingleItem())) {
+            !(kUseCompatibleUiMode && isHideSingleItem()) &&
+            // The main window navigates solely through the sidebar; a tab
+            // strip above the page would duplicate it.
+            widget.leading == null) {
           final showBottomDivider = _showTabBarBottomDivider(tabType);
           return SizedBox(
             height: _kTabBarHeight,
@@ -549,6 +555,11 @@ class _DesktopTabState extends State<DesktopTab>
           child: pageViewBuilder != null
               ? pageViewBuilder!(_buildPageView())
               : _buildPageView())
+    ]);
+    if (widget.leading == null) return body;
+    return Row(children: [
+      widget.leading!,
+      Expanded(child: body),
     ]);
   }
 
@@ -637,7 +648,9 @@ class _DesktopTabState extends State<DesktopTab>
                 child: Row(
                   children: [
                     Offstage(
-                        offstage: !isMacOS,
+                        // The traffic light space lives on the leading widget
+                        // when one is provided, so the tab bar starts flush.
+                        offstage: !isMacOS || widget.leading != null,
                         child: const SizedBox(
                           width: 78,
                         )),

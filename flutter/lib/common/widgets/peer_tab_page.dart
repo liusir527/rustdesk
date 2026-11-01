@@ -27,7 +27,12 @@ import '../../common.dart';
 import '../../models/platform_model.dart';
 
 class PeerTabPage extends StatefulWidget {
-  const PeerTabPage({Key? key}) : super(key: key);
+  const PeerTabPage({Key? key, this.showSwitchBar = true}) : super(key: key);
+
+  /// Hide the tab switch bar when another widget (e.g. the desktop sidebar)
+  /// already drives [PeerTabModel.setCurrentTab]; the right actions stay.
+  final bool showSwitchBar;
+
   @override
   State<PeerTabPage> createState() => _PeerTabPageState();
 }
@@ -119,17 +124,33 @@ class _PeerTabPageState extends State<PeerTabPage>
                 child: selectionWrap(Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Expanded(
-                        child: visibleContextMenuListener(
-                            _createSwitchBar(context))),
+                    if (widget.showSwitchBar)
+                      Expanded(
+                          child: visibleContextMenuListener(
+                              _createSwitchBar(context)))
+                    else if (stateGlobal.isPortrait.isTrue)
+                      const Spacer()
+                    else ...[
+                      // No switch bar: keep the search on the left so the
+                      // row does not start with a wide empty gap.
+                      const PeerSearchBar().marginOnly(right: 13),
+                      const Spacer(),
+                    ],
                     if (stateGlobal.isPortrait.isTrue)
                       ..._portraitRightActions(context)
                     else
-                      ..._landscapeRightActions(context)
+                      ..._landscapeRightActions(
+                        context,
+                        leadingSearch: !widget.showSwitchBar,
+                      )
                   ],
                 )),
               ),
-            ).paddingOnly(right: stateGlobal.isPortrait.isTrue ? 0 : 12)),
+            ).paddingOnly(
+                right: stateGlobal.isPortrait.isTrue ? 0 : 12,
+                left: widget.showSwitchBar || stateGlobal.isPortrait.isTrue
+                    ? 0
+                    : 12)),
         _createPeersView(),
       ],
     );
@@ -572,10 +593,11 @@ class _PeerTabPageState extends State<PeerTabPage>
       !gFFI.abModel.legacyMode.value &&
       gFFI.abModel.current.canWrite();
 
-  List<Widget> _landscapeRightActions(BuildContext context) {
+  List<Widget> _landscapeRightActions(BuildContext context,
+      {bool leadingSearch = false}) {
     final model = Provider.of<PeerTabModel>(context);
     return [
-      const PeerSearchBar().marginOnly(right: 13),
+      if (!leadingSearch) const PeerSearchBar().marginOnly(right: 13),
       _createRefresh(
           index: PeerTabIndex.ab, loading: gFFI.abModel.currentAbLoading),
       _createRefresh(

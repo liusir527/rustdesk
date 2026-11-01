@@ -285,7 +285,11 @@ class _PeersViewState extends State<_PeersView>
                     : DynamicGridView.builder(
                         gridDelegate: SliverGridDelegateWithWrapping(
                             mainAxisSpacing: space / 2,
-                            crossAxisSpacing: space),
+                            crossAxisSpacing: space,
+                            // Tight uniform tile height, otherwise the
+                            // loose wrapping constraints let rows drift
+                            // far apart.
+                            childMainAxisExtent: 64),
                         itemCount: peers.length,
                         itemBuilder: (BuildContext context, int index) {
                           return buildOnePeer(peers[index], false);

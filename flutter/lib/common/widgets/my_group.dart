@@ -58,30 +58,9 @@ class _MyGroupState extends State<MyGroup> {
   }
 
   Widget _buildLandscape() {
-    return Row(
+    return Column(
       children: [
-        Container(
-          decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border:
-                  Border.all(color: Theme.of(context).colorScheme.background)),
-          child: Container(
-            width: 150,
-            height: double.infinity,
-            child: Column(
-              children: [
-                _buildLeftHeader(),
-                Expanded(
-                  child: Container(
-                    width: double.infinity,
-                    height: double.infinity,
-                    child: _buildLeftList(),
-                  ),
-                )
-              ],
-            ),
-          ),
-        ).marginOnly(right: 12.0),
+        _buildFilterChips(),
         Expanded(
           child: Align(
               alignment: Alignment.topLeft,
@@ -91,6 +70,84 @@ class _MyGroupState extends State<MyGroup> {
         )
       ],
     );
+  }
+
+  /// All users and device groups as horizontally scrolling filter pills,
+  /// replacing the old narrow left panel.
+  Widget _buildFilterChips() {
+    return Obx(() {
+      final selected = gFFI.groupModel.selectedAccessibleItemName.value;
+      final isDeviceGroup = gFFI.groupModel.isSelectedDeviceGroup.value;
+      final deviceGroupItems = gFFI.groupModel.deviceGroups;
+      final userItems = gFFI.groupModel.users;
+      Widget chip(String label, IconData? icon, bool isSelected,
+          VoidCallback onTap) {
+        final selectedStyle = isSelected;
+        return InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            decoration: BoxDecoration(
+              color: selectedStyle
+                  ? MyTheme.accent
+                  : Theme.of(context).colorScheme.background,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (icon != null) ...[
+                Icon(icon,
+                    size: 14,
+                    color: selectedStyle ? Colors.white : MyTheme.accent),
+                const SizedBox(width: 5),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: selectedStyle ? Colors.white : null,
+                ),
+              ),
+            ]),
+          ),
+        );
+      }
+
+      return SizedBox(
+        height: 34,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.only(left: 12, right: 12, bottom: 6),
+          child: Row(
+            children: [
+              chip(translate('All'), Icons.apps_rounded,
+                  selected.isEmpty && !isDeviceGroup, () {
+                gFFI.groupModel.selectedAccessibleItemName.value = '';
+              }),
+              const SizedBox(width: 6),
+              for (final g in deviceGroupItems) ...[
+                chip(g.name, IconFont.deviceGroupOutline,
+                    isDeviceGroup && selected == g.name, () {
+                  gFFI.groupModel.isSelectedDeviceGroup.value = true;
+                  gFFI.groupModel.selectedAccessibleItemName.value =
+                      selected == g.name && isDeviceGroup ? '' : g.name;
+                }),
+                const SizedBox(width: 6),
+              ],
+              for (final u in userItems) ...[
+                chip(u.displayNameOrName, null,
+                    !isDeviceGroup && selected == u.name, () {
+                  gFFI.groupModel.isSelectedDeviceGroup.value = false;
+                  gFFI.groupModel.selectedAccessibleItemName.value =
+                      selected == u.name && !isDeviceGroup ? '' : u.name;
+                }),
+                const SizedBox(width: 6),
+              ],
+            ],
+          ),
+        ),
+      );
+    });
   }
 
   Widget _buildPortrait() {
