@@ -823,5 +823,11 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Please select Android → media.", "Izaberite Android → media."),
         ("Trust duration (days)", "Trajanje poverenja (dani)"),
         ("Renew trust", "Obnovi poverenje"),
-    ].iter().cloned().collect();
+            ("All", ""),
+        ("Screen Recording", ""),
+        ("Accessibility", ""),
+        ("Input Monitoring", ""),
+        ("Permission wizard tip", ""),
+        ("Login failed", ""),
+].iter().cloned().collect();
 }

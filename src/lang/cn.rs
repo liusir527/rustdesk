@@ -823,5 +823,11 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Please select Android → media.", "请选择 Android → media。"),
         ("Trust duration (days)", "信任有效期（天）"),
         ("Renew trust", "延长信任有效期"),
-    ].iter().cloned().collect();
+            ("All", "全部"),
+        ("Screen Recording", "屏幕录制"),
+        ("Accessibility", "辅助功能"),
+        ("Input Monitoring", "输入监控"),
+        ("Permission wizard tip", "首次使用请授权以下系统权限。点击「配置」前往系统设置，全部授权后本窗口将自动关闭。"),
+        ("Login failed", "登录失败"),
+].iter().cloned().collect();
 }
