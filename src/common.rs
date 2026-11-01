@@ -2536,10 +2536,59 @@ fn apply_compile_time_preset_client() {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    fn migrate_config_dir_for_preset(app_name: &str) {
+        // A preset that renames the client also moves the config directory
+        // (~/Library/Preferences/com.carriez.<app>). Carry the old RustDesk
+        // config over once so an upgrade keeps the user's login, peers and
+        // presets instead of starting from an empty directory.
+        fn copy_dir_recursive(
+            src: &std::path::Path,
+            dst: &std::path::Path,
+        ) -> std::io::Result<()> {
+            std::fs::create_dir_all(dst)?;
+            for entry in std::fs::read_dir(src)? {
+                let entry = entry?;
+                let ty = entry.file_type()?;
+                let to = dst.join(entry.file_name());
+                if ty.is_dir() {
+                    copy_dir_recursive(&entry.path(), &to)?;
+                } else {
+                    std::fs::copy(entry.path(), &to)?;
+                }
+            }
+            Ok(())
+        }
+        let Ok(home) = std::env::var("HOME") else {
+            return;
+        };
+        let prefs = std::path::Path::new(&home).join("Library/Preferences");
+        let new_dir = prefs.join(format!("com.carriez.{}", app_name));
+        if new_dir.exists() {
+            return;
+        }
+        let old_dir = prefs.join("com.carriez.RustDesk");
+        if !old_dir.is_dir() {
+            return;
+        }
+        if copy_dir_recursive(&old_dir, &new_dir).is_ok() {
+            log::info!(
+                "Migrated config dir {} -> {}",
+                old_dir.display(),
+                new_dir.display()
+            );
+        }
+    }
+
     if let Some(settings) = parse_preset_settings(
         "RUSTDESK_PRESET_HARD_SETTINGS",
         option_env!("RUSTDESK_PRESET_HARD_SETTINGS"),
     ) {
+        if let Some(app_name) = settings.get("app-name") {
+            #[cfg(target_os = "macos")]
+            migrate_config_dir_for_preset(app_name);
+            *config::APP_NAME.write().unwrap() = app_name.to_owned();
+        }
         config::HARD_SETTINGS.write().unwrap().extend(settings);
     }
     if let Some(settings) = parse_preset_settings(
