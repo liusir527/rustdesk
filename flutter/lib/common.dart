@@ -624,8 +624,11 @@ class MyTheme {
         return ThemeMode.light;
       case "dark":
         return ThemeMode.dark;
-      default:
+      case "system":
         return ThemeMode.system;
+      default:
+        // Bright and cheerful is the product default; "system" stays opt-in.
+        return ThemeMode.light;
     }
   }
 }
