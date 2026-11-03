@@ -54,6 +54,7 @@ pub struct AomEncoder {
     height: usize,
     i444: bool,
     yuvfmt: EncodeYuvFormat,
+    force_keyframe: bool,
 }
 
 // https://webrtc.googlesource.com/src/+/refs/heads/main/modules/video_coding/codecs/av1/libaom_av1_encoder.cc
@@ -228,6 +229,7 @@ impl EncoderApi for AomEncoder {
                     height: config.height as _,
                     i444,
                     yuvfmt: Self::get_yuvfmt(config.width, config.height, i444),
+                    force_keyframe: false,
                 })
             }
             _ => Err(anyhow!("encoder type mismatch")),
@@ -277,6 +279,10 @@ impl EncoderApi for AomEncoder {
         true
     }
 
+    fn force_keyframe(&mut self) {
+        self.force_keyframe = true;
+    }
+
     fn latency_free(&self) -> bool {
         true
     }
@@ -316,7 +322,11 @@ impl AomEncoder {
             &image,
             pts as _,
             duration as _, // Duration
-            0,             // Flags
+            if std::mem::take(&mut self.force_keyframe) {
+                AOM_EFLAG_FORCE_KF
+            } else {
+                0
+            } as _,
         ));
 
         Ok(EncodeFrames {

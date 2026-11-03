@@ -50,6 +50,7 @@ pub struct VpxEncoder {
     id: VpxVideoCodecId,
     i444: bool,
     yuvfmt: EncodeYuvFormat,
+    force_keyframe: bool,
 }
 
 pub struct VpxDecoder {
@@ -87,6 +88,18 @@ impl EncoderApi for VpxEncoder {
                 // https://developers.google.com/media/vp9/bitrate-modes/
                 // Constant Bitrate mode (CBR) is recommended for live streaming with VP9.
                 c.rc_end_usage = vpx_rc_mode::VPX_CBR;
+                // libvpx defaults these to 6000/4000/5000 ms of bits. Under CBR that lets a burst
+                // keep spending banked bitrate for seconds after the link slows down, which turns
+                // into a multi-second standing queue on a weak network. Keep the reservoir near a
+                // second, matching the AV1 encoder in aom.rs.
+                c.rc_buf_sz = 1000;
+                c.rc_buf_initial_sz = 600;
+                c.rc_buf_optimal_sz = 600;
+                // Drop the coded resolution before starving the bitrate. The decoder upscales the
+                // frame in-band, so the peer needs no change and sees a softer picture instead.
+                c.rc_resize_allowed = 1;
+                c.rc_scaled_width = 0;
+                c.rc_scaled_height = 0;
                 if let Some(keyframe_interval) = config.keyframe_interval {
                     c.kf_min_dist = 0;
                     c.kf_max_dist = keyframe_interval as _;
@@ -163,6 +176,15 @@ impl EncoderApi for VpxEncoder {
                         VP9E_SET_TILE_COLUMNS as _,
                         4 as c_int
                     ));
+
+                    // Tell the encoder this is screen content. VP9 has no palette or intra-block
+                    // copy syntax, so this only biases mode decisions, AQ and the rate-control
+                    // reaction inside the encoder and leaves the bitstream standard VP9.
+                    call_vpx!(vpx_codec_control_(
+                        &mut ctx,
+                        VP9E_SET_TUNE_CONTENT as _,
+                        super::vpx::vp9e_tune_content::VP9E_CONTENT_SCREEN as c_int
+                    ));
                 } else if config.codec == VpxVideoCodecId::VP8 {
                     // https://github.com/webmproject/libvpx/blob/972149cafeb71d6f08df89e91a0130d6a38c4b15/vpx/vp8cx.h#L172
                     // https://groups.google.com/a/webmproject.org/g/webm-discuss/c/DJhSrmfQ61M
@@ -176,6 +198,7 @@ impl EncoderApi for VpxEncoder {
                     id: config.codec,
                     i444,
                     yuvfmt: Self::get_yuvfmt(config.width, config.height, i444),
+                    force_keyframe: false,
                 })
             }
             _ => Err(anyhow!("encoder type mismatch")),
@@ -230,6 +253,10 @@ impl EncoderApi for VpxEncoder {
         true
     }
 
+    fn force_keyframe(&mut self) {
+        self.force_keyframe = true;
+    }
+
     fn latency_free(&self) -> bool {
         true
     }
@@ -268,7 +295,11 @@ impl VpxEncoder {
             &image,
             pts as _,
             1, // Duration
-            0, // Flags
+            if std::mem::take(&mut self.force_keyframe) {
+                VPX_EFLAG_FORCE_KF
+            } else {
+                0
+            } as _,
             VPX_DL_REALTIME as _,
         ));
 
@@ -606,3 +637,81 @@ impl Drop for Image {
 }
 
 unsafe impl Send for vpx_codec_ctx_t {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const W: usize = 320;
+    const H: usize = 240;
+
+    /// A padded I420 frame, the layout `vpx_img_wrap` expects for the alignment it is given.
+    fn yuv(seed: u8) -> Vec<u8> {
+        let stride = (W + STRIDE_ALIGN - 1) / STRIDE_ALIGN * STRIDE_ALIGN;
+        let mut data = vec![0u8; stride * H * 3 / 2];
+        for y in 0..H {
+            for x in 0..W {
+                data[y * stride + x] = (x as u8).wrapping_mul(3).wrapping_add(seed ^ y as u8);
+            }
+        }
+        let uv = stride * H;
+        for i in 0..(stride / 2) * (H / 2) {
+            data[uv + i] = 90u8.wrapping_add(seed);
+            data[uv + (stride / 2) * H / 2 + i] = 160u8.wrapping_sub(seed);
+        }
+        data
+    }
+
+    fn encoder() -> VpxEncoder {
+        let cfg = crate::codec::EncoderCfg::VPX(VpxEncoderConfig {
+            width: W as c_uint,
+            height: H as c_uint,
+            quality: 1.5,
+            codec: VpxVideoCodecId::VP9,
+            keyframe_interval: None,
+        });
+        <VpxEncoder as EncoderApi>::new(cfg, false).unwrap()
+    }
+
+    /// `None` when the encoder produced no output for this frame.
+    fn encode_one(encoder: &mut VpxEncoder, seed: u8, ms: i64) -> Option<bool> {
+        let data = yuv(seed);
+        match encoder.encode_to_message(EncodeInput::YUV(&data), ms) {
+            Ok(vf) => match &vf.union {
+                Some(base::message_proto::video_frame::Union::Vp9s(frames)) => {
+                    Some(frames.frames.iter().any(|f| f.key))
+                }
+                _ => None,
+            },
+            Err(e) if e.is::<VpxNoOutput>() => None,
+            Err(e) => panic!("encode failed: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn forced_keyframe_is_encoded_as_one() {
+        let mut encoder = encoder();
+        assert_eq!(encode_one(&mut encoder, 1, 0), Some(true), "first frame");
+
+        let mut saw_incremental = false;
+        for (i, seed) in [2u8, 3, 4].iter().copied().enumerate() {
+            if let Some(key) = encode_one(&mut encoder, seed, 33 * (i as i64 + 1)) {
+                assert!(!key, "no keyframe without a request");
+                saw_incremental = true;
+            }
+        }
+        assert!(saw_incremental, "the encoder emitted no frame at all");
+
+        encoder.force_keyframe();
+        assert_eq!(
+            encode_one(&mut encoder, 5, 200),
+            Some(true),
+            "a requested keyframe"
+        );
+        // The request is used once, not left set for every following frame.
+        match encode_one(&mut encoder, 6, 233) {
+            Some(key) => assert!(!key),
+            None => {}
+        }
+    }
+}

@@ -75,6 +75,10 @@ pub trait EncoderApi {
 
     fn support_changing_quality(&self) -> bool;
 
+    /// Ask for the next encoded frame to be a keyframe. Encoders that can only do this by
+    /// restarting keep the default no-op, so their behaviour is unchanged.
+    fn force_keyframe(&mut self) {}
+
     fn latency_free(&self) -> bool;
 
     fn is_hardware(&self) -> bool;

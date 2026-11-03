@@ -387,6 +387,7 @@ pub struct Connection {
     privacy_mode: bool,
     control_permissions: Option<ControlPermissions>,
     last_test_delay: Option<Instant>,
+    last_keyframe_request: Option<Instant>,
     network_delay: u32,
     lock_after_session_end: bool,
     show_remote_cursor: bool,
@@ -506,8 +507,38 @@ const SEC30: Duration = Duration::from_secs(30);
 const H1: Duration = Duration::from_secs(3600);
 const MILLI1: Duration = Duration::from_millis(1);
 const SEND_TIMEOUT_VIDEO: u64 = 12_000;
+// A video frame that has waited longer than this in the send queue is replaced by a newer
+// one instead of being sent: the picture the peer sees would already be stale, and the queue
+// behind it would keep growing. Matches the audio cut-off next to it.
+const STALE_VIDEO_FRAME_MS: i64 = 1000;
+// Dropped frames leave the decoder without their references, so the encoder has to send a
+// keyframe. Asking on every dropped frame would make every frame a keyframe, so limit it.
+const FORCE_KEYFRAME_INTERVAL: Duration = Duration::from_secs(1);
 const SEND_TIMEOUT_OTHER: u64 = SEND_TIMEOUT_VIDEO * 10;
 const SESSION_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Whether a queued video frame is too old to still be worth sending, so the newer frame
+/// behind it can go out instead. Keyframes are never dropped: one is what lets the peer
+/// decode again after the drop, and dropping it too would leave the peer waiting for the
+/// next refresh.
+fn is_stale_video_frame(value: &Message, latency_ms: i64) -> bool {
+    use base::message_proto::video_frame::Union;
+
+    if latency_ms <= STALE_VIDEO_FRAME_MS {
+        return false;
+    }
+    let Some(message::Union::VideoFrame(vf)) = &value.union else {
+        return false;
+    };
+    let is_key = match &vf.union {
+        Some(Union::Vp8s(f)) | Some(Union::Vp9s(f)) | Some(Union::Av1s(f)) => {
+            f.frames.iter().any(|e| e.key)
+        }
+        Some(Union::H264s(f)) | Some(Union::H265s(f)) => f.frames.iter().any(|e| e.key),
+        _ => false,
+    };
+    !is_key
+}
 
 /// Whether the DRM backend can serve a Wayland login screen here.
 ///
@@ -602,6 +633,7 @@ impl Connection {
             privacy_mode: Self::permission(keys::OPTION_ENABLE_PRIVACY_MODE, &control_permissions),
             control_permissions,
             last_test_delay: None,
+            last_keyframe_request: None,
             network_delay: 0,
             lock_after_session_end: false,
             show_remote_cursor: false,
@@ -1077,10 +1109,25 @@ impl Connection {
                     }
                 }
                 Some((instant, value)) = rx_video.recv() => {
-                    if !conn.video_ack_required {
+                    let stale = is_stale_video_frame(&value, instant.elapsed().as_millis() as i64);
+                    // Acknowledge before dropping: the producer waits for this notification
+                    // and would otherwise idle for its whole 3s timeout on a dropped frame.
+                    if !conn.video_ack_required || stale {
                         if let Some(message::Union::VideoFrame(vf)) = &value.union {
                             video_service::notify_video_frame_fetched(vf.display as usize, id, Some(instant.into()));
                         }
+                    }
+                    if stale {
+                        if let Some(message::Union::VideoFrame(vf)) = &value.union {
+                            conn.request_keyframe(vf.display as usize);
+                            hbb_common::throttled_log!(
+                                Duration::from_secs(5),
+                                trace,
+                                "dropped stale video frame after {}ms",
+                                instant.elapsed().as_millis()
+                            );
+                        }
+                        continue;
                     }
                     if let Err(err) = conn.stream.send(&value as &Message).await {
                         conn.on_close(&err.to_string(), false).await;
@@ -4596,6 +4643,27 @@ impl Connection {
         ((failure, time), res)
     }
 
+    /// Ask the video service for the display to encode its next frame as a keyframe, so a
+    /// peer that missed frames because of a stale drop can decode again. Rate limited: the
+    /// request is a flag the service clears when it honours it, and without the limit every
+    /// frame of a long stall would become a keyframe.
+    fn request_keyframe(&mut self, display: usize) {
+        if self
+            .last_keyframe_request
+            .is_some_and(|last| last.elapsed() < FORCE_KEYFRAME_INTERVAL)
+        {
+            return;
+        }
+        self.last_keyframe_request = Some(Instant::now());
+        self.server.upgrade().map(|s| {
+            s.read().unwrap().set_video_service_opt(
+                Some((self.video_source(), display)),
+                video_service::OPTION_FORCE_KEYFRAME,
+                super::service::SERVICE_OPTION_VALUE_TRUE,
+            );
+        });
+    }
+
     fn refresh_video_display(&self, display: Option<usize>) {
         video_service::refresh();
         self.server.upgrade().map(|s| {
@@ -7226,6 +7294,35 @@ mod test {
 
     fn unauthorized_count() -> usize {
         UNAUTHORIZED_CONNS.lock().unwrap().len()
+    }
+
+    fn video_message(key: bool) -> Message {
+        let mut msg = Message::new();
+        let mut vf = base::message_proto::VideoFrame::new();
+        let mut frames = base::message_proto::EncodedVideoFrames::new();
+        let mut frame = base::message_proto::EncodedVideoFrame::new();
+        frame.key = key;
+        frame.data = vec![1, 2, 3].into();
+        frames.frames.push(frame);
+        vf.set_vp9s(frames);
+        msg.set_video_frame(vf);
+        msg
+    }
+
+    #[test]
+    fn stale_video_frames_are_dropped_but_keyframes_are_not() {
+        assert!(!is_stale_video_frame(&video_message(false), 0));
+        assert!(!is_stale_video_frame(&video_message(false), 999));
+        assert!(is_stale_video_frame(&video_message(false), 1001));
+        // Dropping the keyframe too would leave the peer waiting for the next refresh.
+        assert!(!is_stale_video_frame(&video_message(true), 60_000));
+    }
+
+    #[test]
+    fn only_video_frames_are_stale() {
+        let mut msg = Message::new();
+        msg.set_misc(base::message_proto::Misc::new());
+        assert!(!is_stale_video_frame(&msg, 60_000));
     }
 
     #[test]

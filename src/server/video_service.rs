@@ -63,6 +63,7 @@ use std::{
 };
 
 pub const OPTION_REFRESH: &'static str = "refresh";
+pub const OPTION_FORCE_KEYFRAME: &'static str = "force_keyframe";
 
 mod static_refresh;
 
@@ -866,6 +867,10 @@ fn run(vs: VideoService) -> ResultType<()> {
                         }
                     }
 
+                    if sp.is_option_true(OPTION_FORCE_KEYFRAME) {
+                        sp.set_option_bool(OPTION_FORCE_KEYFRAME, false);
+                        encoder.force_keyframe();
+                    }
                     let frame = frame.to(encoder.yuvfmt(), &mut yuv, &mut mid_data)?;
                     static_refresh.on_frame(&frame);
                     let result = handle_one_frame(
