@@ -12,13 +12,12 @@ enum _PermissionStatus { granted, missing }
 
 class _PermissionItem {
   final String name;
-  final Future<void> Function() request;
-  _PermissionStatus status;
+  final VoidCallback request;
+  _PermissionStatus status = _PermissionStatus.missing;
 
   _PermissionItem({
     required this.name,
     required this.request,
-    this.status = _PermissionStatus.missing,
   });
 }
 
@@ -36,21 +35,15 @@ Future<void> maybeShowPermissionWizard(BuildContext context) async {
   final items = [
     _PermissionItem(
       name: 'Screen Recording',
-      request: () async {
-        await bind.mainIsCanScreenRecording(prompt: true);
-      },
+      request: () => bind.mainIsCanScreenRecording(prompt: true),
     ),
     _PermissionItem(
       name: 'Accessibility',
-      request: () async {
-        await bind.mainIsProcessTrusted(prompt: true);
-      },
+      request: () => bind.mainIsProcessTrusted(prompt: true),
     ),
     _PermissionItem(
       name: 'Input Monitoring',
-      request: () async {
-        await bind.mainIsCanInputMonitoring(prompt: true);
-      },
+      request: () => bind.mainIsCanInputMonitoring(prompt: true),
     ),
   ];
 
