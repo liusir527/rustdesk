@@ -114,10 +114,11 @@ class _MyGroupState extends State<MyGroup> {
       }
 
       return SizedBox(
-        height: 34,
+        width: double.infinity,
+        height: 36,
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.only(left: 12, right: 12, bottom: 6),
+          padding: const EdgeInsets.only(left: 12, right: 12, bottom: 4),
           child: Row(
             children: [
               chip(translate('All'), Icons.apps_rounded,

@@ -116,7 +116,7 @@ class _PeerTabPageState extends State<PeerTabPage>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Obx(() => SizedBox(
-              height: 32,
+              height: stateGlobal.isPortrait.isTrue ? 32 : 44,
               child: Container(
                 padding: stateGlobal.isPortrait.isTrue
                     ? EdgeInsets.symmetric(horizontal: 2)
@@ -131,9 +131,9 @@ class _PeerTabPageState extends State<PeerTabPage>
                     else if (stateGlobal.isPortrait.isTrue)
                       const Spacer()
                     else ...[
-                      // No switch bar: keep the search on the left so the
-                      // row does not start with a wide empty gap.
-                      const PeerSearchBar().marginOnly(right: 13),
+                      // Without the switch bar the search is a permanent field
+                      // on the left rather than an icon that expands on tap.
+                      const PeerSearchBar(persistent: true),
                       const Spacer(),
                     ],
                     if (stateGlobal.isPortrait.isTrue)
@@ -707,7 +707,10 @@ class _PeerTabPageState extends State<PeerTabPage>
 }
 
 class PeerSearchBar extends StatefulWidget {
-  const PeerSearchBar({Key? key}) : super(key: key);
+  const PeerSearchBar({Key? key, this.persistent = false}) : super(key: key);
+
+  /// Render the input field directly instead of a magnifier that expands it.
+  final bool persistent;
 
   @override
   State<StatefulWidget> createState() => _PeerSearchBarState();
@@ -715,9 +718,31 @@ class PeerSearchBar extends StatefulWidget {
 
 class _PeerSearchBarState extends State<PeerSearchBar> {
   var drawer = false;
+  final focused = false.obs;
+  final focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    focusNode.addListener(() {
+      focused.value = focusNode.hasFocus;
+      peerSearchTextController.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: peerSearchTextController.value.text.length);
+    });
+  }
+
+  @override
+  void dispose() {
+    focusNode.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (widget.persistent) {
+      return _buildSearchBar(compact: false, closable: false);
+    }
     return drawer
         ? _buildSearchBar()
         : _hoverAction(
@@ -735,20 +760,13 @@ class _PeerSearchBarState extends State<PeerSearchBar> {
             ));
   }
 
-  Widget _buildSearchBar() {
-    RxBool focused = false.obs;
-    FocusNode focusNode = FocusNode();
-    focusNode.addListener(() {
-      focused.value = focusNode.hasFocus;
-      peerSearchTextController.selection = TextSelection(
-          baseOffset: 0,
-          extentOffset: peerSearchTextController.value.text.length);
-    });
+  Widget _buildSearchBar({bool compact = true, bool closable = true}) {
     return Obx(() => Container(
-          width: stateGlobal.isPortrait.isTrue ? 120 : 140,
+          width: compact ? (stateGlobal.isPortrait.isTrue ? 120 : 140) : 240,
+          height: compact ? null : 36,
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.background,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(8),
           ),
           child: Row(
             children: [
@@ -757,11 +775,12 @@ class _PeerSearchBarState extends State<PeerSearchBar> {
                   children: [
                     Icon(
                       Icons.search_rounded,
+                      size: 18,
                       color: Theme.of(context).hintColor,
-                    ).marginSymmetric(horizontal: 4),
+                    ).marginSymmetric(horizontal: 10),
                     Expanded(
                       child: TextField(
-                        autofocus: true,
+                        autofocus: compact,
                         controller: peerSearchTextController,
                         onChanged: (searchText) {
                           peerSearchText.value = searchText;
@@ -790,23 +809,42 @@ class _PeerSearchBarState extends State<PeerSearchBar> {
                       ).workaroundFreezeLinuxMint(),
                     ),
                     // Icon(Icons.close),
-                    IconButton(
-                      alignment: Alignment.centerRight,
-                      padding: const EdgeInsets.only(right: 2),
-                      onPressed: () {
-                        setState(() {
-                          peerSearchTextController.clear();
-                          peerSearchText.value = "";
-                          drawer = false;
-                        });
-                      },
-                      icon: Tooltip(
-                          message: translate('Close'),
-                          child: Icon(
-                            Icons.close,
-                            color: Theme.of(context).hintColor,
-                          )),
-                    ),
+                    if (closable)
+                      IconButton(
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 2),
+                        onPressed: () {
+                          setState(() {
+                            peerSearchTextController.clear();
+                            peerSearchText.value = "";
+                            drawer = false;
+                          });
+                        },
+                        icon: Tooltip(
+                            message: translate('Close'),
+                            child: Icon(
+                              Icons.close,
+                              color: Theme.of(context).hintColor,
+                            )),
+                      )
+                    else if (peerSearchText.value.isNotEmpty)
+                      IconButton(
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 2),
+                        onPressed: () {
+                          setState(() {
+                            peerSearchTextController.clear();
+                            peerSearchText.value = "";
+                          });
+                        },
+                        icon: Tooltip(
+                            message: translate('Close'),
+                            child: Icon(
+                              Icons.close,
+                              size: 16,
+                              color: Theme.of(context).hintColor,
+                            )),
+                      ),
                   ],
                 ),
               )

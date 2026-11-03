@@ -88,15 +88,16 @@ class _AddressBookState extends State<AddressBook> {
   /// share-permission indicators — replaces the old 200px left panel.
   Widget _buildAbToolbar() {
     return Container(
-      padding: const EdgeInsets.only(left: 12, right: 12, bottom: 6),
+      padding: const EdgeInsets.only(left: 12, right: 12, bottom: 8),
       child: Obx(() {
         final tags = gFFI.abModel.currentAbTags.toList();
         final editPermission = gFFI.abModel.current.canWrite();
         return SizedBox(
-          height: 44,
+          height: 36,
           child: Row(
             children: [
-              SizedBox(width: 200, child: _buildAbDropdown()),
+              SizedBox(width: 150, child: _buildAbDropdown()),
+              const SizedBox(width: 10),
               Expanded(
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
@@ -270,7 +271,7 @@ class _AddressBookState extends State<AddressBook> {
               }
             },
       customButton: Obx(() => Container(
-            height: stateGlobal.isPortrait.isFalse ? 36 : 40,
+            height: stateGlobal.isPortrait.isFalse ? 30 : 40,
             padding: const EdgeInsets.symmetric(horizontal: 10),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.background,
@@ -283,10 +284,12 @@ class _AddressBookState extends State<AddressBook> {
               Icon(Icons.arrow_drop_down),
             ]),
           )),
-      underline: Container(
-        height: 0.7,
-        color: Theme.of(context).dividerColor.withOpacity(0.1),
-      ),
+      underline: stateGlobal.isPortrait.isFalse
+          ? const SizedBox.shrink()
+          : Container(
+              height: 0.7,
+              color: Theme.of(context).dividerColor.withOpacity(0.1),
+            ),
       menuItemStyleData: menuItemStyleData,
       items: items,
       isExpanded: true,
@@ -819,9 +822,9 @@ class AddressBookTag extends StatelessWidget {
                 color: tags.contains(name)
                     ? gFFI.abModel.getCurrentAbTagColor(name)
                     : Theme.of(context).colorScheme.background,
-                borderRadius: BorderRadius.circular(4)),
-            margin: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
-            padding: const EdgeInsets.symmetric(vertical: 2.0, horizontal: 6.0),
+                borderRadius: BorderRadius.circular(14)),
+            margin: const EdgeInsets.only(right: 8.0),
+            padding: const EdgeInsets.symmetric(vertical: 5.0, horizontal: 12.0),
             child: IntrinsicWidth(
               child: Row(
                 children: [
@@ -838,6 +841,7 @@ class AddressBookTag extends StatelessWidget {
                   Expanded(
                     child: Text(isUnTagged ? translate(name) : name,
                         style: TextStyle(
+                            fontSize: 12,
                             overflow: TextOverflow.ellipsis,
                             color: tags.contains(name) ? Colors.white : null)),
                   ),

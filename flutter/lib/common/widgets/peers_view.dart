@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
 
-import 'package:dynamic_layouts/dynamic_layouts.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/consts.dart';
@@ -96,6 +95,8 @@ class _PeersViewState extends State<_PeersView>
     LoadEvent.addressBook: 'empty_address_book_tip',
   });
   final space = (isDesktop || isWebDesktop) ? 12.0 : 8.0;
+  static const double _gridCardHeight = 64;
+  static const double _maxCardWidth = 320;
   final _curPeers = <String>{};
   var _lastChangeTime = DateTime.now();
   var _lastQueryPeers = <String>{};
@@ -254,7 +255,7 @@ class _PeersViewState extends State<_PeersView>
                       ? Container(height: 45, child: visibilityChild)
                       : peerCardUiType.value == PeerUiType.grid
                           ? SizedBox(
-                              width: 220, height: 140, child: visibilityChild)
+                              height: _gridCardHeight, child: visibilityChild)
                           : SizedBox(
                               width: 220, height: 42, child: visibilityChild))
                   : Container(child: visibilityChild);
@@ -282,14 +283,16 @@ class _PeersViewState extends State<_PeersView>
                               bottom: space / 2);
                         },
                       )
-                    : DynamicGridView.builder(
-                        gridDelegate: SliverGridDelegateWithWrapping(
-                            mainAxisSpacing: space / 2,
+                    : GridView.builder(
+                        controller: _scrollController,
+                        // `MaxCrossAxisExtent` keeps cards a readable width and
+                        // left aligned, while still filling the row instead of
+                        // leaving empty space on the right.
+                        gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                            maxCrossAxisExtent: _maxCardWidth,
                             crossAxisSpacing: space,
-                            // Tight uniform tile height, otherwise the
-                            // loose wrapping constraints let rows drift
-                            // far apart.
-                            childMainAxisExtent: 64),
+                            mainAxisSpacing: space / 2,
+                            mainAxisExtent: _gridCardHeight),
                         itemCount: peers.length,
                         itemBuilder: (BuildContext context, int index) {
                           return buildOnePeer(peers[index], false);
