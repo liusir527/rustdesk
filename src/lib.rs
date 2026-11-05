@@ -15,6 +15,7 @@ mod server;
 pub use self::server::*;
 mod client;
 mod lan;
+mod relay_probe;
 #[cfg(not(any(target_os = "ios")))]
 mod rendezvous_mediator;
 #[cfg(not(any(target_os = "ios")))]

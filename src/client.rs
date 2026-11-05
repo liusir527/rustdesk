@@ -844,6 +844,9 @@ impl Client {
         let mut my_addr = socket.local_addr();
         let mut signed_id_pk = Vec::new();
         let mut relay_server = "".to_owned();
+        // Ordered candidate relays from hbbs (relay-geo), probed only if this
+        // side ends up initiating a relayed connection. Empty on old servers.
+        let mut relay_candidates: Vec<String> = Vec::new();
         let mut peer_addr = Config::get_any_listen_addr(true);
         let mut peer_nat_type = NatType::UNKNOWN_NAT;
         let my_nat_type = crate::get_nat_type(100).await;
@@ -1024,6 +1027,7 @@ impl Client {
                             is_local = ph.is_local();
                             signed_id_pk = ph.pk.into();
                             relay_server = ph.relay_server;
+                            relay_candidates = ph.relay_servers;
                             peer_addr = AddrMangle::decode(&ph.socket_addr);
                             feedback = ph.feedback;
                             webrtc_sdp_answer = ph.webrtc_sdp_answer;
@@ -1353,6 +1357,14 @@ impl Client {
             bail!("Failed to connect via rendezvous server");
         }
         let time_used = start.elapsed().as_millis() as u64;
+        // Nearest-relay probe (Phase 2): if direct attempts fail and this side
+        // must initiate a relayed connection, measure candidate RTTs once here
+        // and use the winner for every later request_relay call in connect().
+        let relay_server = if relay_candidates.len() > 1 {
+            crate::relay_probe::pick(&relay_candidates, &relay_server).await
+        } else {
+            relay_server
+        };
         log::info!(
             "{} ms used to {} punch hole, relay_server: {}, {}",
             time_used,
