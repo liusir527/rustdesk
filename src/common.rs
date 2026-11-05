@@ -780,7 +780,18 @@ async fn test_nat_type_() -> ResultType<bool> {
         let t = if port1 == port2 {
             NatType::ASYMMETRIC
         } else {
-            NatType::SYMMETRIC
+            // TCP-only verdicts can mislabel a cone (UDP endpoint-independent)
+            // NAT as SYMMETRIC, which makes the peer relay immediately. A STUN
+            // recheck over real UDP probes corrects that; failures keep t.
+            let verdict = match crate::nat_stun::recheck(
+                crate::nat_stun::NatTypeVerdict::Symmetric,
+            )
+            .await
+            {
+                crate::nat_stun::NatTypeVerdict::Asymmetric => NatType::ASYMMETRIC,
+                crate::nat_stun::NatTypeVerdict::Symmetric => NatType::SYMMETRIC,
+            };
+            verdict
         };
         Config::set_nat_type(t as _);
         log::info!("Tested nat type: {:?} in {:?}", t, start.elapsed());
