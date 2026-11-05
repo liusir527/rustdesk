@@ -112,4 +112,13 @@
 
 - STUN 服务器默认列表在中国大陆的可用性（Google STUN 可能不可达）：默认列表选型需实测，或允许通过选项配置为国内可达地址。
 - 服务端 UDP TestNat 应答的注册校验口径：以「有 RegisterPeer 记录」还是「pk 已注册」为准，实现时按 `pm` 现有查询 API 的成本选定（需防 UDP 反射，但也不能让正常客户端测不到）。
+
+## 9. 实现结果（2026-11-05）
+
+- US-001（server af0c356）：`handle_udp` 新增 TestNatRequest arm（rendezvous_server.rs），应答 `TestNatResponse{port: addr.port()}` + serial 较大时附 ConfigUpdate，与 TCP 路径一致。**未做注册校验**：打洞 UDP socket（`new_direct_udp_for_unverified`）从不向 hbbs 注册，「仅答注册来源」会让功能失效；应答只回显观察到的端口，无放大面（请求 11B → 响应 ~8B）。FR-2 按此口径作废。验证：本地 hbbs 5/5 回复且 port==源端口。
+- US-004（client 9f9f6ba9f）：`src/nat_stun.rs`（277 行，6 单测）。关键实现约束：**多个 STUN 服务器必须用同一个 socket 探测**——每个服务器各用新 socket 必然映射不同，所有 NAT 都会被判 symmetric。默认列表 `stun.miwifi.com` + `stun.chat.bilibili.com`（本 LAN 实测可达；qq 超时、google 可用但作 fallback 不进默认）。总预算 3s，`enable-stun-recheck` 可关（默认开）。本机验证 [1410, 1410] → 正确降级 ASYMMETRIC。
+- US-005（client 8eb55f646）：受控端 `punch_req:`（rendezvous_mediator.rs 判定后）、主控端 `punch_stats:`（client.rs connect() 返回前）各一行 info，固定前缀 grep 聚合；直连率 = (udp_direct+tcp_direct)/总会话。
+- FR-6 保持：`test_udp_uat`/`udp_nat_wait`/`udp_nat_connect`/`punch_udp` 零改动。
+- 联调（/tmp/joint_verify.py）：patched hbbs + 模拟客户端 UDP TestNat → 5/5 应答，port==源端口，PunchHoleRequest.udp_port>0 → punch_udp 分支命中。
+- 上游事实修正：官方 rs-ny.rustdesk.com 会应答 UDP TestNat（公共基础设施跑的是闭源 Pro 服务端）；OSS master/1.1.16 均无此 arm——本修复正是补齐 OSS 与 Pro 的这一差距。
 - `relay-fallback-delay`（默认 2500ms）在 UDP 打洞激活后是否需要针对 UDP 场景单独调优——先不动，埋点数据出来后再决策。
