@@ -1094,6 +1094,22 @@ impl RendezvousMediator {
             || (config::is_disable_tcp_listen() && ph.udp_port <= 0);
         let punch_udp = !relay_v4 && ph.udp_port > 0;
         let punch_tcp = !relay_v4 && ph.udp_port <= 0 && ph.webrtc_sdp_offer.is_empty();
+        // Session-level attribution line (US-005): which path this PunchHoleRequest took and
+        // why, so relay-vs-direct rates can be aggregated from logs on either side.
+        log::info!(
+            "punch_req: peer_nat={} udp_port={} decision={}",
+            ph.nat_type.value(),
+            ph.udp_port,
+            if relay_v4 {
+                "relay_v4"
+            } else if punch_udp {
+                "udp_punch"
+            } else if punch_tcp {
+                "tcp_punch"
+            } else {
+                "webrtc"
+            }
+        );
         let punch_v6 = peer_addr_v6.port() > 0 && !relay;
         let (slot_udp, slot_v6) = UDP_PUNCHES.take_pair(punch_udp, punch_v6);
         let slot_tcp = punch_tcp.then(|| TCP_PUNCHES.take()).flatten();

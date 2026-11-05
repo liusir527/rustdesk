@@ -1398,6 +1398,7 @@ impl Client {
                 webrtc_bridge_stop,
                 allow_tcp_punch,
                 &punch_type,
+                udp_nat_port as u64,
             )
             .await?,
             (feedback, rendezvous_server),
@@ -1427,6 +1428,7 @@ impl Client {
         webrtc_bridge_stop: Option<oneshot::Sender<()>>,
         allow_tcp_punch: bool,
         punch_type: &str,
+        udp_nat_port_used: u64,
     ) -> ResultType<(
         Stream,
         bool,
@@ -1658,6 +1660,25 @@ impl Client {
             }
         }
         log::debug!("{} punch secure_connection ok", punch_type);
+        // Session-level attribution line (US-005): final transport of this session, so
+        // direct-vs-relay rates can be aggregated by grepping `punch_stats:` on either side.
+        log::info!(
+            "punch_stats: nat_type=local:{}/peer:{:?} udp_port={} result={} est_ms={} punch_type={}",
+            my_nat_type,
+            peer_nat_type,
+            udp_nat_port_used,
+            if direct {
+                match typ {
+                    "UDP" => "udp_direct",
+                    "WebRTC" => "webrtc",
+                    _ => "tcp_direct",
+                }
+            } else {
+                "relay"
+            },
+            start.elapsed().as_millis(),
+            punch_type
+        );
         Ok((conn, direct, pk, kcp, typ))
     }
 
