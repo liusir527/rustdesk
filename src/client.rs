@@ -1360,7 +1360,9 @@ impl Client {
         // Nearest-relay probe (Phase 2): if direct attempts fail and this side
         // must initiate a relayed connection, measure candidate RTTs once here
         // and use the winner for every later request_relay call in connect().
-        let relay_server = if relay_candidates.len() > 1 {
+        // Skipped in the same-subnet case, where hbbs pinned relay_server to the
+        // peer's LAN address and probing it would defeat that pin.
+        let relay_server = if relay_candidates.len() > 1 && !is_local {
             crate::relay_probe::pick(&relay_candidates, &relay_server).await
         } else {
             relay_server

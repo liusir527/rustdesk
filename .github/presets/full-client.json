@@ -2,7 +2,7 @@
   "hard_settings": {},
   "override_settings": {
     "custom-rendezvous-server": "rd.wh.easylan.site",
-    "relay-server": "rd.wh.easylan.site",
+    "relay-server": "",
     "api-server": "",
     "key": "bJS1n4CiPh++CuqizpHqK8yYdqWRusMId7l30nBuTMM=",
     "enable-check-update": "N",

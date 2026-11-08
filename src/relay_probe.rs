@@ -32,10 +32,12 @@ const MAX_CANDIDATES: usize = 4;
 static CACHE: std::sync::Mutex<Option<HashMap<String, (u64, Instant)>>> =
     std::sync::Mutex::new(None);
 
-/// Returns false when the option value explicitly disables probing.
+/// Returns false only when the option is set to an explicit disable value.
+/// The option is not part of DEFAULT_SETTINGS, so an unset key reads as "" here
+/// and must count as enabled -- otherwise probing would never run.
 fn enabled() -> bool {
     let v = Config::get_option("relay-probe");
-    !matches!(v.to_lowercase().as_str(), "n" | "0" | "off" | "false" | "")
+    !matches!(v.to_lowercase().as_str(), "n" | "0" | "off" | "false")
 }
 
 fn cache_get(addr: &str) -> Option<u64> {
@@ -180,16 +182,13 @@ mod tests {
         for v in ["N", "n", "0", "off", "OFF", "false", "FALSE"] {
             assert!(!enabled_with(v), "expected disabled for {:?}", v);
         }
-        // Explicit enable values.
-        for v in ["Y", "1", "on", "true"] {
+        // Explicit enable values, plus unset (the key is not in DEFAULT_SETTINGS).
+        for v in ["Y", "1", "on", "true", ""] {
             assert!(enabled_with(v), "expected enabled for {:?}", v);
         }
     }
 
     fn enabled_with(v: &str) -> bool {
-        !matches!(
-            v.to_lowercase().as_str(),
-            "n" | "0" | "off" | "false" | ""
-        )
+        !matches!(v.to_lowercase().as_str(), "n" | "0" | "off" | "false")
     }
 }

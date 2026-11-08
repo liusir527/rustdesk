@@ -1128,7 +1128,9 @@ impl RendezvousMediator {
         // local relay-server option is not overriding, this side may become the
         // relay initiator (relay_v4 below), so measure RTTs now. pick() returns
         // relay_server unchanged when candidates < 2 or relay-probe=off.
-        relay_server = crate::relay_probe::pick(&ph.relay_servers, &relay_server).await;
+        if Config::get_option("relay-server").is_empty() {
+            relay_server = crate::relay_probe::pick(&ph.relay_servers, &relay_server).await;
+        }
         // for ensure, websocket go relay directly
         // A symmetric NAT relays the legacy transports but deliberately not WebRTC: the answer
         // built above rides along on the relay request, and ICE probes the candidate pairs rather
