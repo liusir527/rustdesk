@@ -736,48 +736,49 @@ pub fn test_nat_type() {
 
 #[tokio::main(flavor = "current_thread")]
 async fn test_nat_type_() -> ResultType<bool> {
+    // The label gates the UDP punch (and how long the peer waits for it), so it must describe the
+    // UDP mapping: one socket probed against two different STUN servers answers whether the
+    // mapping varies with the destination. The old probe compared two concurrent TCP streams to
+    // the rendezvous ports, whose mapping behavior belongs to a different transport - a gateway
+    // that maps UDP cone but TCP per-stream was classified SYMMETRIC, and a p2p-capable pair was
+    // relayed before any punch was sent.
     log::info!("Testing nat ...");
     let start = std::time::Instant::now();
-    let server1 = Config::get_rendezvous_server();
-    let server2 = crate::increase_port(&server1, -1);
-    let mut msg_out = RendezvousMessage::new();
-    let serial = Config::get_serial();
-    msg_out.set_test_nat_request(TestNatRequest {
-        serial,
-        ..Default::default()
-    });
-    let mut port1 = 0;
-    let mut port2 = 0;
-    let mut local_addr = None;
-    for i in 0..2 {
-        let server = if i == 0 { &*server1 } else { &*server2 };
-        let mut socket =
-            socket_client::connect_tcp_local(server, local_addr, CONNECT_TIMEOUT).await?;
-        if i == 0 {
-            // reuse the local addr is required for nat test
-            local_addr = Some(socket.local_addr());
-            Config::set_option(
-                "local-ip-addr".to_owned(),
-                socket.local_addr().ip().to_string(),
-            );
-        }
-        socket.send(&msg_out).await?;
-        if let Some(msg_in) = get_next_nonkeyexchange_msg(&mut socket, None).await {
-            if let Some(rendezvous_message::Union::TestNatResponse(tnr)) = msg_in.union {
-                log::debug!("Got nat response from {}: port={}", server, tnr.port);
-                if i == 0 {
-                    port1 = tnr.port;
-                } else {
-                    port2 = tnr.port;
-                }
-            }
-        } else {
+    use stunclient::StunClient;
+    let mut ports: Vec<u16> = Vec::new();
+    for server in hbb_common::webrtc::WebRTCStream::default_stun_servers() {
+        if ports.len() >= 2 {
             break;
         }
+        let Some(stun_addr) = tokio::net::lookup_host(&server)
+            .await?
+            .find(|x| x.is_ipv4())
+        else {
+            log::debug!("No ipv4 address for STUN server {}, skipped", server);
+            continue;
+        };
+        let socket = UdpSocket::bind("0.0.0.0:0").await?;
+        // Punch packets share the local address the peer dials, so keep recording it as before.
+        Config::set_option(
+            "local-ip-addr".to_owned(),
+            socket.local_addr().ip().to_string(),
+        );
+        match StunClient::new(stun_addr)
+            .query_external_address_async(&socket)
+            .await
+        {
+            Ok(addr) => {
+                log::debug!("Got nat response from {}: port={}", server, addr.port());
+                ports.push(addr.port());
+            }
+            Err(err) => {
+                log::debug!("STUN probe to {} failed: {}", server, err);
+            }
+        }
     }
-    let ok = port1 > 0 && port2 > 0;
+    let ok = ports.len() == 2;
     if ok {
-        let t = if port1 == port2 {
+        let t = if ports[0] == ports[1] {
             NatType::ASYMMETRIC
         } else {
             NatType::SYMMETRIC
