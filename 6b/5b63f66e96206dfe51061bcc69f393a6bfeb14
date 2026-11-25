@@ -1,0 +1,16 @@
+src/common.rs
+  h_8422b08600ccca 739-744,747-751,753-775,779,781
+src/rendezvous_mediator.rs
+  h_8422b08600ccca 1091-1096
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6b5b63f66e96206dfe51061bcc69f393a6bfeb14",
+  "prompts": {},
+  "humans": {
+    "h_8422b08600ccca": {
+      "author": "liuxing5 <liuxing5@intra.nsfocus.com>"
+    }
+  }
+}
