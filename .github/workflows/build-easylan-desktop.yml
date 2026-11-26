@@ -37,7 +37,7 @@ jobs:
   build-windows-x64:
     name: ${{ matrix.preset.name }} - Windows x64
     needs: [generate-bridge, build-RustDeskTempTopMostWindow]
-    runs-on: windows-2022
+    runs-on: [self-hosted, win-build]
     strategy:
       fail-fast: false
       matrix:
